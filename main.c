@@ -179,7 +179,6 @@ static uint8_t process_kbd_report(hid_keyboard_report_t const *report)
   }
   for(uint8_t i=0; i<6; i++)
   {
-    //if ( report->keycode[i] || report->modifier)
     {
       if ( find_key_in_report(&prev_report, report->keycode[i]) && (last_modifier == 0) )
       {
