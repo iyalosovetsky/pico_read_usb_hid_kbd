@@ -163,6 +163,11 @@ static inline bool find_modifier_in_report(hid_keyboard_report_t const *report, 
   return false;
 }
 
+inline static uint8_t Fast_Fix(hid_keyboard_report_t const *report, uint8_t i){
+    if(report->keycode[i] == 0x0a)
+         return 0x03;
+    else return report->keycode[i];     
+}
 static uint8_t process_kbd_report(hid_keyboard_report_t const *report)
 {
   static hid_keyboard_report_t prev_report = { 0, 0, {0} }; // previous report to check key released
@@ -185,6 +190,7 @@ static uint8_t process_kbd_report(hid_keyboard_report_t const *report)
         // exist in previous report means the current key is holding
       }else
       {
+
         last_modifier = 0;
         if((report->keycode[i] == 0x39) && (report->keycode[i] != prev_caps)){
           leds = leds ^ KEYBOARD_LED_CAPSLOCK;
@@ -201,16 +207,20 @@ static uint8_t process_kbd_report(hid_keyboard_report_t const *report)
         // not existed in previous report means the current key is pressed
         bool const is_shift = report->modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
         //for test
+        // fix 0x0A
+        uint8_t c = Fast_Fix(report,i);
+
+
         putchar(0x01);
         putchar(leds);
         putchar(report->modifier);
-        putchar(report->keycode[i]);
+        putchar(c);
+        
         putchar(~leds);
         putchar(~report->modifier);
-        putchar(~report->keycode[i]);
+        putchar(~c);
         putchar(0x02);
-        // if ( ch == '\r' ) putchar('\n'); // added new line for enter key
-
+        
         fflush(stdout); // flush right away, else nanolib will wait for newline
       }
     }
