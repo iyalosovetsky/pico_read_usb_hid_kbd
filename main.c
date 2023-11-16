@@ -163,11 +163,12 @@ static inline bool find_modifier_in_report(hid_keyboard_report_t const *report, 
   return false;
 }
 
-inline static uint8_t Fast_Fix(hid_keyboard_report_t const *report, uint8_t i){
-    if(report->keycode[i] == 0x0a)
-         return 0x03;
-    else return report->keycode[i];     
-}
+// inline static uint8_t Fast_Fix(hid_keyboard_report_t const *report, uint8_t i){
+//     if(report->keycode[i] == 0x0a)
+//          return 0x03;
+//     else return report->keycode[i];     
+// }
+
 static uint8_t process_kbd_report(hid_keyboard_report_t const *report)
 {
   static hid_keyboard_report_t prev_report = { 0, 0, {0} }; // previous report to check key released
@@ -208,18 +209,18 @@ static uint8_t process_kbd_report(hid_keyboard_report_t const *report)
         bool const is_shift = report->modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
         //for test
         // fix 0x0A
-        uint8_t c = Fast_Fix(report,i);
+        // uint8_t c = Fast_Fix(report,i);
 
 
-        putchar(0x01);
-        putchar(leds);
-        putchar(report->modifier);
-        putchar(c);
+        putchar_raw(0x01);
+        putchar_raw(leds);
+        putchar_raw(report->modifier);
+        putchar_raw(report->keycode[i]);
         
-        putchar(~leds);
-        putchar(~report->modifier);
-        putchar(~c);
-        putchar(0x02);
+        putchar_raw(~leds);
+        putchar_raw(~report->modifier);
+        putchar_raw(~report->keycode[i]);
+        putchar_raw(0x02);
         
         fflush(stdout); // flush right away, else nanolib will wait for newline
       }
