@@ -126,14 +126,21 @@ static void uartCustomInit(){
 
 
 static void appLed(void){
+  // how  match blink for macro1
 	#define MACROREAPEAT_1 5 
+  // how  match blink for macro2
 	#define MACROREAPEAT_2 10
+  // 3 commands which recognize from uart in
 	#define MACRO1 1 
 	#define MACRO2 2
-	#define MACROBASE 3
+  #define MACRO3 3
+	#define MACROBASE 4
+  // interval of blinking in us
 	#define TIMECONST 500000
+  // varible to store  caps num  scroll before apply macro
 	static uint8_t defaultLeds = 1;
-	static uint8_t modReapeat = 0;
+  // variable to itterate count of blink for specified macro
+	static uint32_t modReapeat = 0;
 	static uint32_t timeout = 0;
 	if(modChanged == 1){
 		if((time_us_32() > timeout )){
@@ -148,8 +155,11 @@ static void appLed(void){
 					timeout = (time_us_32() + TIMECONST) % 0xffffffff;
 					modReapeat++;
 					leds = 7 ^ modLed;
-
 					if(modReapeat == MACROREAPEAT_2) modCtrl = MACROBASE;
+					break;
+        case MACRO3: // infinite blinking
+					timeout = (time_us_32() + TIMECONST) % 0xffffffff;
+					leds = 7 ^ modLed;
 					break;
 				default:
 					timeout = 0;				
