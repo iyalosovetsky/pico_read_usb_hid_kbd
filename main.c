@@ -317,11 +317,7 @@ static inline bool find_modifier_in_report(hid_keyboard_report_t const *report, 
   return false;
 }
 
-// inline static uint8_t Fast_Fix(hid_keyboard_report_t const *report, uint8_t i){
-//     if(report->keycode[i] == 0x0a)
-//          return 0x03;
-//     else return report->keycode[i];     
-// }
+
 
 static uint8_t process_kbd_report(hid_keyboard_report_t const *report)
 {
@@ -349,24 +345,18 @@ static uint8_t process_kbd_report(hid_keyboard_report_t const *report)
         last_modifier = 0;
         if((report->keycode[i] == 0x39) && (report->keycode[i] != prev_caps)){
           leds = leds ^ KEYBOARD_LED_CAPSLOCK;
-          //todo
         }
         if((report->keycode[i] == 0x53) && (report->keycode[i] != prev_num)){
           leds = leds ^ KEYBOARD_LED_NUMLOCK;
-          //todo
         }
         if((report->keycode[i] == 0x47) && (report->keycode[i] != prev_scroll)){
           leds = leds ^ KEYBOARD_LED_SCROLLLOCK;
-          //todo
         }
         // not existed in previous report means the current key is pressed
         bool const is_shift = report->modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
-        //for test
-        // fix 0x0A
-        // uint8_t c = Fast_Fix(report,i);
 
 
-        putchar_raw(0x01);
+        putchar_raw(PROT_SOF);
         putchar_raw(leds);
         putchar_raw(report->modifier);
         putchar_raw(report->keycode[i]);
@@ -374,7 +364,7 @@ static uint8_t process_kbd_report(hid_keyboard_report_t const *report)
         putchar_raw(~leds);
         putchar_raw(~report->modifier);
         putchar_raw(~report->keycode[i]);
-        putchar_raw(0x02);
+        putchar_raw(PROT_EOF);
         
         fflush(stdout); // flush right away, else nanolib will wait for newline
       }
