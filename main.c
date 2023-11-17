@@ -3,19 +3,166 @@
 #include <string.h>
 
 #include "hardware/uart.h"
+#include "hardware/irq.h"
+#include "hardware/timer.h"
 #include "pico/stdlib.h"
 #include "bsp/board.h"
 #include "tusb.h"
 
 #define UART_ID uart0
 #define BAUD_RATE 9600
+
+// We are using pins 0 and 1, but see the GPIO function select table in the
+// datasheet for information on which other pins can be used.
 #define UART_TX_PIN 0
 #define UART_RX_PIN 1
+
+/// \tag::uart_advanced[]
+
+#define PARITY    UART_PARITY_NONE
+#define DATA_BITS 8
+#define STOP_BITS 1
+
+
+#define PROT_SOF 0x01
+#define PROT_EOF 0x02
+
+static int chars_rxed = 0;
+static uint8_t pos = 0;
+static uint8_t ch[8] = {0};
+static uint8_t modCtrl = 0;
+static uint8_t modLed = 1;
+static uint8_t modChanged = 1;
+// Keyboard LED control
+static uint8_t leds = 0x01; // todo check for 0x00
+static uint8_t prev_leds = 0xFF;
 
 static uint8_t const keycode2ascii[128][2] =  { HID_KEYCODE_TO_ASCII };
 
 static uint8_t process_kbd_report(hid_keyboard_report_t const *report);
 void process_kbd_led(uint8_t dev_addr, uint8_t instance, hid_keyboard_report_t const *report);
+
+inline static uint8_t decShiftPos(uint8_t pos, uint8_t shift){
+	
+	return ((pos+8-shift)%8);
+}
+inline static uint8_t incShiftPos(uint8_t pos, uint8_t shift){
+	
+	return ((pos+8+shift)%8);
+}
+
+static void packet_parser(char * data, uint8_t pos){
+	if((data[pos] == PROT_SOF) \
+	&& (data[incShiftPos(pos, (4-1))] == PROT_EOF) \
+	&& (data[incShiftPos(pos, (1))] == ~data[incShiftPos(pos, (2))]))
+	{
+		modCtrl = data[incShiftPos(pos, (1))] / 0x0f;
+		modLed = (data[incShiftPos(pos, (1))] % 0x0f) & 0x07;
+		modChanged = 1;
+	}
+	
+	
+}
+
+
+// RX interrupt handler
+void on_uart_rx() {
+
+    while (uart_is_readable(UART_ID)) {
+        
+		ch[pos] = uart_getc(UART_ID);
+		
+		if(ch[pos] == PROT_EOF){
+			packet_parser(&ch[0], decShiftPos(pos, (4-1)));
+		}
+		
+		pos = (pos + 1)%8;	
+    }
+}
+
+
+
+static void uartCustomInit(){
+    // Set up our UART with a basic baud rate.
+    uart_init(UART_ID, 2400);
+
+    // Set the TX and RX pins by using the function select on the GPIO
+    // Set datasheet for more information on function select
+    gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
+
+    // Actually, we want a different speed
+    // The call will return the actual baud rate selected, which will be as close as
+    // possible to that requested
+    int __unused actual = uart_set_baudrate(UART_ID, BAUD_RATE);
+
+    // Set UART flow control CTS/RTS, we don't want these, so turn them off
+    uart_set_hw_flow(UART_ID, false, false);
+
+    // Set our data format
+    uart_set_format(UART_ID, DATA_BITS, STOP_BITS, PARITY);
+
+    // Turn off FIFO's - we want to do this character by character
+    uart_set_fifo_enabled(UART_ID, false);
+
+    // Set up a RX interrupt
+    // We need to set up the handler first
+    // Select correct interrupt for the UART we are using
+    int UART_IRQ = UART_ID == uart0 ? UART0_IRQ : UART1_IRQ;
+
+    // And set up and enable the interrupt handlers
+    irq_set_exclusive_handler(UART_IRQ, on_uart_rx);
+    irq_set_enabled(UART_IRQ, true);
+
+    // Now enable the UART to send interrupts - RX only
+    uart_set_irq_enables(UART_ID, true, false);
+
+    // OK, all set up.
+    // Lets send a basic string out, and then run a loop and wait for RX interrupts
+    // The handler will count them, but also reflect the incoming data back with a slight change!
+    uart_puts(UART_ID, "\nHello, uart interrupts\n");
+	
+}	
+
+
+static void appLed(void){
+	#define MACROREAPEAT_1 5 
+	#define MACROREAPEAT_2 10
+	#define MACRO1 1 
+	#define MACRO2 2
+	#define MACROBASE 3
+	#define TIMECONST 500000
+	static uint8_t defaultLeds = 1;
+	static uint8_t modReapeat = 0;
+	static uint32_t timeout = 0;
+	if(modChanged == 1){
+		if((time_us_32() > timeout )){
+			switch(modCtrl){
+				case MACRO1: 
+					timeout = (time_us_32() + TIMECONST) % 0xffffffff;
+					modReapeat++;
+					leds = 7 ^ modLed;
+					if(modReapeat == MACROREAPEAT_1) modCtrl = MACROBASE;
+					break;
+				case MACRO2: 
+					timeout = (time_us_32() + TIMECONST) % 0xffffffff;
+					modReapeat++;
+					leds = 7 ^ modLed;
+
+					if(modReapeat == MACROREAPEAT_2) modCtrl = MACROBASE;
+					break;
+				default:
+					timeout = 0;				
+					modReapeat = 0;
+					modChanged = 0;					
+					leds = defaultLeds;
+					break;
+			}
+		}	
+		
+	} else 	defaultLeds = leds;
+	
+}
 
 
 
@@ -23,9 +170,7 @@ int main() {
   board_init();
 
   // init serial
-  uart_init(UART_ID, BAUD_RATE);
-  gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
-  gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
+  uartCustomInit();
 
   // TinyUSB, init host stack on configured RootHub Port
   tuh_init(BOARD_TUH_RHPORT);
@@ -35,6 +180,7 @@ int main() {
 
   while(true) {
     tuh_task();  // tinyusb host task
+	appLed(); //keyboard led control
   }
 
   return 0;
@@ -76,9 +222,7 @@ void tuh_umount_cb(uint8_t dev_addr)
 //   }
 // }
 
-// Keyboard LED control
-static uint8_t leds = 0x01; // todo check for 0x00
-static uint8_t prev_leds = 0xFF;
+
 // Invoked when device with hid interface is mounted
 // Report descriptor is also available for use. tuh_hid_parse_report_descriptor()
 // can be used to parse common/simple enough descriptor.
