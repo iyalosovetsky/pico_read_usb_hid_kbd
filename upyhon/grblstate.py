@@ -174,7 +174,7 @@ class GrblState(object):
         self.flashKbdLEDs(LED_SCROLLLOCK , BLINK_5) ##2 - leds ???       # 2 - macro1 10/2 blink
         self.uart_grbl_mpg.write(bytearray(b'\x8b\r\n'))
       elif command in ('cancel'):  
-        if self.state == 'run' or st.state == 'jog':
+        if self.state == 'run' or self.state == 'jog':
           self.flashKbdLEDs(LED_SCROLLLOCK , BLINK_5) ##2 - leds ???       # 2 - macro1 10/2 blink
           self.uart_grbl_mpg.write(bytearray(b'\x85\r\n'))
           self.uart_grbl_mpg.write(bytearray(b'\x18\r\n')) # cancel ascii
