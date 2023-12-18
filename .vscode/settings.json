@@ -1,5 +1,16 @@
 {
     "files.associations": {
         "random": "c"
-    }
+    },
+    "cSpell.words": [
+        "alrm",
+        "grblstate",
+        "ltick",
+        "mpos",
+        "neopixel",
+        "ralt",
+        "rctrl",
+        "ropt",
+        "rxdata"
+    ]
 }

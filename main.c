@@ -26,38 +26,46 @@
 
 #define PROT_SOF 0x01
 #define PROT_EOF 0x02
+#define UART_BUFF_SIZE 0x08
+#define PROT_BUFF_SIZE 0x04
+
 
 static int chars_rxed = 0;
 static uint8_t pos = 0;
-static uint8_t ch[8] = {0};
+static uint8_t ch[UART_BUFF_SIZE] = {0};
 static uint8_t modCtrl = 0;
-static uint8_t modLed = 1;
-static uint8_t modChanged = 1;
+static uint8_t modLed = 0;
+static uint8_t modChanged = 0;
 // Keyboard LED control
 static uint8_t leds = 0x01; // todo check for 0x00
 static uint8_t prev_leds = 0xFF;
-
+static uint8_t devAddrArr[5] = {0};
+static uint8_t instanceArr[5] = {0};
+static uint8_t deviceCount = 0;
 static uint8_t const keycode2ascii[128][2] =  { HID_KEYCODE_TO_ASCII };
 
 static uint8_t process_kbd_report(hid_keyboard_report_t const *report);
 void process_kbd_led(uint8_t dev_addr, uint8_t instance, hid_keyboard_report_t const *report);
+void custom_led_send(void);
+
 
 inline static uint8_t decShiftPos(uint8_t pos, uint8_t shift){
 	
-	return ((pos+8-shift)%8);
+	return ((pos+UART_BUFF_SIZE-shift)%UART_BUFF_SIZE);
 }
 inline static uint8_t incShiftPos(uint8_t pos, uint8_t shift){
 	
-	return ((pos+8+shift)%8);
+	return ((pos+UART_BUFF_SIZE+shift)%UART_BUFF_SIZE);
 }
 
 static void packet_parser(char * data, uint8_t pos){
 	if((data[pos] == PROT_SOF) \
-	&& (data[incShiftPos(pos, (4-1))] == PROT_EOF) \
-	&& (data[incShiftPos(pos, (1))] == ~data[incShiftPos(pos, (2))]))
+	&& (data[incShiftPos(pos, (PROT_BUFF_SIZE-1))] == PROT_EOF) \
+	//&& (data[incShiftPos(pos, (1))] == ~data[incShiftPos(pos, (2))])
+  )
 	{
-		modCtrl = data[incShiftPos(pos, (1))] / 0x0f;
-		modLed = (data[incShiftPos(pos, (1))] % 0x0f) & 0x07;
+		modCtrl = data[incShiftPos(pos, (1))] / 0x10;
+		modLed = (data[incShiftPos(pos, (1))] % 0x10) & 0x07;
 		modChanged = 1;
 	}
 	
@@ -73,10 +81,10 @@ void on_uart_rx() {
 		ch[pos] = uart_getc(UART_ID);
 		
 		if(ch[pos] == PROT_EOF){
-			packet_parser(&ch[0], decShiftPos(pos, (4-1)));
+			packet_parser(&ch[0], decShiftPos(pos, (PROT_BUFF_SIZE-1)));
 		}
 		
-		pos = (pos + 1)%8;	
+		pos = (pos + 1)%UART_BUFF_SIZE;	
     }
 }
 
@@ -84,7 +92,7 @@ void on_uart_rx() {
 
 static void uartCustomInit(){
     // Set up our UART with a basic baud rate.
-    uart_init(UART_ID, 2400);
+    uart_init(UART_ID, BAUD_RATE);
 
     // Set the TX and RX pins by using the function select on the GPIO
     // Set datasheet for more information on function select
@@ -120,7 +128,7 @@ static void uartCustomInit(){
     // OK, all set up.
     // Lets send a basic string out, and then run a loop and wait for RX interrupts
     // The handler will count them, but also reflect the incoming data back with a slight change!
-    uart_puts(UART_ID, "\nHello, uart interrupts\n");
+    // uart_puts(UART_ID, "\nHello, uart interrupts\n");
 	
 }	
 
@@ -141,33 +149,49 @@ static void appLed(void){
 	static uint8_t defaultLeds = 1;
   // variable to itterate count of blink for specified macro
 	static uint32_t modReapeat = 0;
+  static uint8_t modInit = 1;
 	static uint32_t timeout = 0;
 	if(modChanged == 1){
+        
 		if((time_us_32() > timeout )){
+      putchar_raw(PROT_SOF);
+      putchar_raw(0xfe);
+      putchar_raw(modCtrl*0x10+modLed);
+      putchar_raw(0);
+      
+      putchar_raw(~0xfe);
+      putchar_raw(~(modCtrl*0x10+modLed));
+      putchar_raw(~0);
+      putchar_raw(PROT_EOF);
 			switch(modCtrl){
 				case MACRO1: 
 					timeout = (time_us_32() + TIMECONST) % 0xffffffff;
 					modReapeat++;
-					leds = 7 ^ modLed;
+          if(modInit == 1) { leds =0; modInit = 0;}
+					leds = ((leds & modLed) ^ modLed);
 					if(modReapeat == MACROREAPEAT_1) modCtrl = MACROBASE;
 					break;
 				case MACRO2: 
 					timeout = (time_us_32() + TIMECONST) % 0xffffffff;
 					modReapeat++;
-					leds = 7 ^ modLed;
+					if(modInit == 1) { leds =0; modInit = 0;}
+					leds = ((leds & modLed) ^ modLed);
 					if(modReapeat == MACROREAPEAT_2) modCtrl = MACROBASE;
 					break;
         case MACRO3: // infinite blinking
 					timeout = (time_us_32() + TIMECONST) % 0xffffffff;
-					leds = 7 ^ modLed;
+					if(modInit == 1) { leds =0; modInit = 0;}
+					leds = ((leds & modLed) ^ modLed);
 					break;
 				default:
 					timeout = 0;				
 					modReapeat = 0;
-					modChanged = 0;					
+					modChanged = 0;
+          modInit =1;					
 					leds = defaultLeds;
 					break;
 			}
+      custom_led_send();
 		}	
 		
 	} else 	defaultLeds = leds;
@@ -190,7 +214,10 @@ int main() {
 
   while(true) {
     tuh_task();  // tinyusb host task
-	appLed(); //keyboard led control
+    busy_wait_us(5000);
+	  appLed(); //keyboard led control
+    busy_wait_us(5000);
+
   }
 
   return 0;
@@ -240,13 +267,18 @@ void tuh_umount_cb(uint8_t dev_addr)
 // therefore report_desc = NULL, desc_len = 0
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_report, uint16_t desc_len)
 {
-  printf("HID device address = %d, instance = %d is mounted\r\n", dev_addr, instance);
+  //printf("HID device address = %d, instance = %d is mounted\r\n", dev_addr, instance);
 
   if (tuh_hid_interface_protocol(dev_addr, instance) == HID_ITF_PROTOCOL_KEYBOARD)
   {
     if (!tuh_hid_receive_report(dev_addr, instance))
     {
-      printf("Error: cannot request to receive report\r\n");
+      //printf("Error: cannot request to receive report\r\n");
+    }
+    if( deviceCount < 5){
+      devAddrArr[deviceCount] = dev_addr;
+      instanceArr[deviceCount] = instance;
+      deviceCount++;
     }
     if (leds != prev_leds)
     {
@@ -256,12 +288,24 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
   }
 }
 
-
-
 // Invoked when device with hid interface is un-mounted
-void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
-  printf("HID device address = %d, instance = %d is unmounted\r\n", dev_addr, instance);
+void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance)
+{
+  //printf("HID device address = %d, instance = %d is unmounted\r\n", dev_addr, instance);
+  devAddrArr[deviceCount] = dev_addr;
+  instanceArr[deviceCount] = instance;
+  deviceCount--;
 }
+void custom_led_send(void){
+//      if (leds != prev_leds)
+
+    for(uint8_t i =0; i <= deviceCount; i++)
+      {
+        tuh_hid_set_report(devAddrArr[i], instanceArr[i], 0, HID_REPORT_TYPE_OUTPUT, &leds, sizeof(leds));
+        prev_leds = leds;
+      }
+}
+
 
 
 
@@ -375,6 +419,9 @@ static uint8_t process_kbd_report(hid_keyboard_report_t const *report)
   prev_report = *report;
   return leds;
 }
+// void tuh_hid_report_sent_cb(uint8_t dev_addr, uint8_t instance, const uint8_t *report, uint16_t len){
+//         process_kbd_led(dev_addr, instance, (hid_keyboard_report_t const *)report);
+// }
 
 void process_kbd_led(uint8_t dev_addr, uint8_t instance, hid_keyboard_report_t const *report){
     if (leds != prev_leds)
