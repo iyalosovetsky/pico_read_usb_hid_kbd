@@ -36,7 +36,7 @@ FONT = bytes((
     0x0C, 0x1E, 0x0C, 0x1E, 0x0C,
     0x30, 0x38, 0x3E, 0x38, 0x30,
     0x06, 0x0E, 0x3E, 0x0E, 0x06,
-    0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, #0x20 space
     0x00, 0x00, 0x5F, 0x00, 0x00,
     0x00, 0x07, 0x00, 0x07, 0x00,
     0x14, 0x7F, 0x14, 0x7F, 0x14,
@@ -276,6 +276,7 @@ class FontRenderer:
         self._height = height
         self._pixel = pixel
         self._font_name = font_name
+        self._cursor_pos = 0
 
     def init(self):
         # Open the font file and grab the character width and height values.
@@ -311,6 +312,8 @@ class FontRenderer:
 
 
     def draw_char(self, ch, x, y, color):
+        if ch==' ':
+              return 3
         maxX=0
         # Don't draw the character if it will be clipped off the visible area.
         if x < -self._font_width or x >= self._width or \
@@ -354,19 +357,17 @@ class FontRenderer:
 
     def text(self, text, x, y, color):
         # Draw the specified text at the specified location.
-        x_pos=x
+        self._cursor_pos=x
+        
         for i in range(len(text)):
             cl=color
             if text[i]==',' and i>0:
-                x_pos=x_pos-1
+                self._cursor_pos-=1
                 cl=(0,0,0)
                 if text[i]==',':
                     cl=(15-color[0],15-color[1],15-color[2])
-                
-                    
-                    
-            maxX=self.draw_char(text[i], x_pos , y, cl)
-            x_pos=x_pos+maxX+1
+            maxX=self.draw_char(text[i], self._cursor_pos , y, cl)
+            self._cursor_pos+=(maxX+1)
 
     def width(self, text):
         # Return the pixel width of the specified text message.

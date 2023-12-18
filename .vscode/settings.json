@@ -11,6 +11,7 @@
         "ralt",
         "rctrl",
         "ropt",
-        "rxdata"
+        "rxdata",
+        "sideset"
     ]
 }

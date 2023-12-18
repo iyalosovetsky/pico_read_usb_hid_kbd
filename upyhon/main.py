@@ -234,8 +234,9 @@ st = GrblState(cb_flashKbdLEDs=flashKbdLeds, uart_grbl_mpg = uartMPG )
 st.neo.pixels_fill(st.neo.BLACK)
 st.neo.animate(p_type='left-cycle', p_delay=0.3)
 st.neo.pixels_show()
-st.neo.text('Grbl', 0, 0, st.neo.YELLOW)
+st.neo.text('GrblHAL', 0, 0, st.neo.YELLOW)
 st.neo.pixels_show()
+st.neo.animate(p_type='window-left-right')
 
 
 

@@ -240,7 +240,7 @@ class GrblState(object):
               self._state_prev = self._state
             else:
                 elem = token.split(':')
-                if len(elem)>1 and elem[0]=='mpg' and elem[1] is not None:
+                if len(elem)>1 and elem[0]=='mpg' and elem[1] is not None and (elem[1]=='1' or elem[1]=='0'):
                     self._mpg_prev=self._mpg
                     self._mpg=(elem[1]=='1')
                 elif  len(elem)>1 and elem[0]=='mpos' and elem[1] is not None:       
@@ -253,7 +253,12 @@ class GrblState(object):
       self.parseState(grblState.strip())
       print("MPG ->",grblState,' \n - >> prev ',self.state_prev, self.mpg_prev,' now=>',self.state, self.mpg)
       if self.mpg is not None and (self.mpg_prev is None or self.mpg !=self.mpg_prev):
+          self._mpg_prev=self._mpg
           self.flashKbdLEDs(LED_SCROLLLOCK , BLINK_5 if self.mpg else BLINK_2) 
+          if self.mpg:
+            self.neoInfo('MPG:1',color='green')
+          else:
+             self.neoInfo('MPG:0',color='purple')  
       if self.state_is_changed():  
               if self.state == 'alarm':
                   self._jog_arrow = ''
@@ -306,7 +311,7 @@ class GrblState(object):
       self.neo.animate(p_type=animate, p_delay=0.3)
       self.neo.pixels_show()
 
-    def neoError(self,text:str, color:str = 'red', animate:str = 'None' ) :     
+    def neoError(self,text:str, color:str = 'red', animate:str = 'window-left-right' ) :     
         self.neoText(text=text, color=color, animate = animate )     
 
     def neoJogInc(self,text:str, color:str = 'green', animate:str = 'right-cycle' ) :     
@@ -315,5 +320,5 @@ class GrblState(object):
     def neoJogDec(self,text:str, color:str = 'red', animate:str = 'left-cycle' ) :     
         self.neoText(text=text, color=color, animate = animate )              
 
-    def neoInfo(self,text:str, color:str = 'purple', animate:str = 'None' ) :     
+    def neoInfo(self,text:str, color:str = 'purple', animate:str = 'window-left-right' ) :     
         self.neoText(text=text, color=color, animate = animate )                       
