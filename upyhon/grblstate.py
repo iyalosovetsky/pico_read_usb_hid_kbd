@@ -4,7 +4,7 @@ C_STEP_MIN = 0.1
 C_STEP_Z_MAX = 20.0
 C_STEP_Z_MIN = 0.1
 
-C_FEED_MAX = 8000.0
+C_FEED_MAX = 2000.0
 C_FEED_MIN = 200.0
 
 
@@ -63,6 +63,7 @@ class GrblState(object):
            self._feedrate = C_FEED_MAX
       else:    
            self._feedrate +=100.0
+      self._state_prev='feed'
       print('g_feedrate now',self._feedrate)  
 
 
@@ -71,6 +72,7 @@ class GrblState(object):
            self._feedrate = C_FEED_MIN
       else:    
            self._feedrate -=100.0
+      self._state_prev='feed'     
       print('g_feedrate now',self._feedrate)  
 
     def inc_stepXY(self):
@@ -78,6 +80,7 @@ class GrblState(object):
            self._dXY =C_STEP_MAX
       else:   
            self._dXY *=10.0
+      self._state_prev='stepX'     
       print('g_step+ now',self._dXY)         
 
     def dec_stepXY(self):
@@ -85,6 +88,7 @@ class GrblState(object):
            self._dXY =C_STEP_MIN
       else:   
            self._dXY *=0.1
+      self._state_prev='stepX'          
       print('g_step- now',self._dXY)         
 
     def inc_stepZ(self):
@@ -92,6 +96,7 @@ class GrblState(object):
            self._dZ =C_STEP_Z_MAX
       else:   
            self._dZ *=10.0
+      self._state_prev='stepZ'          
       print('g_step_z now',self._dZ)         
 
     def dec_stepZ(self):
@@ -99,6 +104,7 @@ class GrblState(object):
            self._dZ =C_STEP_Z_MIN
       else:   
            self._dZ *=0.1
+      self._state_prev='stepZ'          
       print('g_step_z now',self._dZ)  
 
     def set_jog_arrow(self, arrow:str):
@@ -113,13 +119,13 @@ class GrblState(object):
       f=self.feedrate
       if x is not None and x!=0.0:
         self.set_jog_arrow(('+' if x>0 else '-')+'x')
-        self.mpgCommand(f'$J=G91 G21 X{x} F{f} \r\n') 
+        self.mpgCommand(f'$J=G91 G21 X{x} F{f}\r\n') 
       elif y is not None and y!=0.0:
         self.set_jog_arrow(('+' if y>0 else '-')+'y')
-        self.mpgCommand(f'$J=G91 G21 Y{y} F{f} \r\n')    
+        self.mpgCommand(f'$J=G91 G21 Y{y} F{f}\r\n')    
       elif z is not None and z!=0.0:
         self.set_jog_arrow(('+' if z>0 else '-')+'z')
-        self.mpgCommand(f'$J=G91 G21 Z{z} F{f} \r\n')    
+        self.mpgCommand(f'$J=G91 G21 Z{z} F{f}\r\n')    
 
 
 
@@ -142,34 +148,34 @@ class GrblState(object):
           self.grblJog(z=self.step)
       elif command=='-feed' : 
           self.dec_feedrate()
-          self.neoInfo('f{0:.0f}'.format(self._feedrate/10))
+          self.neoInfo('feed {0:.0f}'.format(self._feedrate))
       elif command=='+feed':
           self.inc_feedrate()
-          self.neoInfo('f{0:.0f}'.format(self._feedrate/10))
+          self.neoInfo('feed {0:.0f}'.format(self._feedrate))
       elif command=='-stepXY' :    
           self.dec_stepXY()
           if self._dXY<1:
-            self.neoInfo('{0:.1f}'.format(self._dXY).replace('.',','))
+            self.neoInfo('dX {0:.1f}'.format(self._dXY).replace('.',','))
           else:  
-             self.neoInfo('{0:.0f}'.format(self._dXY))
+             self.neoInfo('dX {0:.0f}'.format(self._dXY))
       elif command=='+stepXY' :    
           self.inc_stepXY()
           if self._dXY<1:
-            self.neoInfo('{0:.1f}'.format(self._dXY).replace('.',','))
+            self.neoInfo('dX {0:.1f}'.format(self._dXY).replace('.',','))
           else:  
-             self.neoInfo('{0:.0f}'.format(self._dXY))
+             self.neoInfo('dX {0:.0f}'.format(self._dXY))
       elif command=='-stepZ' :    
           self.dec_stepZ()
           if self._dZ<1:
-            self.neoInfo('z{0:.1f}'.format(self._dZ).replace('.',','))
+            self.neoInfo('dZ {0:.1f}'.format(self._dZ).replace('.',','))
           else:  
-             self.neoInfo('z{0:.0f}'.format(self._dZ))
+             self.neoInfo('dZ {0:.0f}'.format(self._dZ))
       elif command=='+stepZ' :    
           self.inc_stepZ()
           if self._dZ<1:
-            self.neoInfo('z{0:.1f}'.format(self._dZ).replace('.',','))
+            self.neoInfo('dZ {0:.1f}'.format(self._dZ).replace('.',','))
           else:  
-             self.neoInfo('z{0:.0f}'.format(self._dZ))
+             self.neoInfo('dZ {0:.0f}'.format(self._dZ))
       elif command in ('#'):  
         self.flashKbdLEDs(LED_SCROLLLOCK , BLINK_5) ##2 - leds ???       # 2 - macro1 10/2 blink
         self.uart_grbl_mpg.write(bytearray(b'\x8b\r\n'))
@@ -178,6 +184,7 @@ class GrblState(object):
           self.flashKbdLEDs(LED_SCROLLLOCK , BLINK_5) ##2 - leds ???       # 2 - macro1 10/2 blink
           self.uart_grbl_mpg.write(bytearray(b'\x85\r\n'))
           self.uart_grbl_mpg.write(bytearray(b'\x18\r\n')) # cancel ascii
+          self.uart_grbl_mpg.write(bytearray(b'?\r\n')) # cancel ascii
         else:
           self.flashKbdLeds(LED_ALL , BLINK_2) ##7 - 3 leds       # 1 - macro1
               
@@ -185,6 +192,7 @@ class GrblState(object):
         self.flashKbdLEDs(LED_ALL , BLINK_2) ##7 - 3 leds       # 1 - macro1
         self.uart_grbl_mpg.write('$X'.encode()+b'\r\n')
       else:
+        self.neoInfo(command[:10],virtual_width = 128)
         self.uart_grbl_mpg.write(command.encode()+b'\r\n')
 
 
@@ -221,6 +229,12 @@ class GrblState(object):
     def parseState(self,grblState:str):
         if grblState is None:
           return 
+        
+        i=5
+        while i>0 and grblState.endswith('ok'):
+          i-=1
+          grblState=grblState[:-2].strip()
+
         if not (grblState.startswith('<') and grblState.endswith('>')):
           return         
         if grblState.startswith('error:'):
@@ -235,9 +249,11 @@ class GrblState(object):
                 
         for ii,token in enumerate(self.grbl_state.replace('<','').replace('>','').lower().split('|')):
             if ii==0 :
-              self._state = token
-              self._state_is_changed = (self._state_prev is None or  self._state_prev != self._state)
+              prv = self._state_prev
               self._state_prev = self._state
+              self._state = token
+              self._state_is_changed = (prv is None or  prv != self._state)
+              
             else:
                 elem = token.split(':')
                 if len(elem)>1 and elem[0]=='mpg' and elem[1] is not None and (elem[1]=='1' or elem[1]=='0'):
@@ -286,8 +302,8 @@ class GrblState(object):
                   self.flashKbdLEDs(LED_ALL , NOBLINK) 
                   self.neoInfo('Idle')
 
-    def neoText(self,text:str, color:str = 'PURPLE', animate:str = 'None' ) :     
-      self.neo.pixels_fill(self.neo.BLACK)
+    def neoText(self,text:str, color:str = 'PURPLE', animate:str = 'None', virtual_width:int = 64  ) :     
+      
       cl = self.neo.PURPLE
       if color.upper()=='PURPLE':
          cl = self.neo.PURPLE
@@ -307,6 +323,7 @@ class GrblState(object):
          cl = self.neo.YELLOW
       else:
          cl = self.neo.WHITE
+      self.neo.clear(virtual_width=virtual_width)
       self.neo.text(text, 0, 0,cl )
       self.neo.animate(p_type=animate, p_delay=0.3)
       self.neo.pixels_show()
@@ -315,10 +332,10 @@ class GrblState(object):
         self.neoText(text=text, color=color, animate = animate )     
 
     def neoJogInc(self,text:str, color:str = 'green', animate:str = 'right-cycle' ) :     
-        self.neoText(text=text, color=color, animate = animate )     
+        self.neoText(text=text, color=color, animate = animate, virtual_width = 16 )     
 
     def neoJogDec(self,text:str, color:str = 'red', animate:str = 'left-cycle' ) :     
-        self.neoText(text=text, color=color, animate = animate )              
+        self.neoText(text=text, color=color, animate = animate, virtual_width = 16 )              
 
-    def neoInfo(self,text:str, color:str = 'purple', animate:str = 'window-left-right' ) :     
-        self.neoText(text=text, color=color, animate = animate )                       
+    def neoInfo(self,text:str, color:str = 'purple', animate:str = 'window-left-right', virtual_width = 64 ) :     
+        self.neoText(text=text, color=color, animate = animate, virtual_width = virtual_width )                       

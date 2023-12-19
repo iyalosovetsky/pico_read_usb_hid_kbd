@@ -272,7 +272,13 @@ KBD2GRBL ={
     'f4': '+stepZ',
     'f5': '-feed',
     'f6': '+feed',
-    'esc': 'cancel'
+    'esc': 'cancel',
+    '~':'~',
+    '!':'!',
+    '?':'?',
+    '#':'#',
+    '$':'$',
+    '@':'@'
 
 }
 
@@ -287,6 +293,7 @@ while True:
         time.sleep(0.05) #50ms
         if time.time()-start_time_q>3:
             uartMPG.write(('?' if st.state == 'jog' else '?').encode()  )
+            # st.sent2grbl(KBD2GRBL.get('?' if st.state == 'jog' else '?','?'))
             start_time_q = time.time()
 
         while uartMPG.any() > 0:
@@ -307,14 +314,12 @@ while True:
                     l_char =='f1' or l_char =='f2' or l_char =='f3' or l_char =='f4' or \
                     l_char =='f5' or l_char =='f6' or l_char =='enter' or \
                     (l_char.startswith('ctrl-f') and len(l_char)>6) or (l_char.startswith('alt-f') and len(l_char)>5):
-                    if l_char in ('~','!','?','#','$','@') :
-                        st.sent2grbl(l_char)
-                        COMMAND=''
-                    elif l_char =='left' or l_char =='right' or l_char =='pageUp' or l_char =='pageDown' or \
+                    if l_char in ('~','!','?','#','$','@') or \
+                        l_char =='left' or l_char =='right' or l_char =='pageUp' or l_char =='pageDown' or \
                         l_char =='up' or l_char =='down' or \
                         l_char =='f1' or l_char =='f2' or l_char =='f3' or l_char =='f4' or \
                         l_char =='f5' or l_char =='f6' or l_char =='esc':
-                        st.sent2grbl(KBD2GRBL.get(l_char,''))
+                        st.sent2grbl(KBD2GRBL.get(l_char,l_char))
                         COMMAND=''                        
                         
                     elif l_char in ('enter'):

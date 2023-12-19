@@ -43,8 +43,12 @@ class NeoPixel(object):
         self.width = width
         self.height = height
         self.num = self.width * self.height
+
         self.num_virtual = self.width_virtual * self.height
+        self.ar = array.array("I", [0 for _ in range(self.num_virtual)])
+        self.cursor_pos=0
         self.x_window_pos = 0
+
         self.fr=font.FontRenderer(width=self.width_virtual, height=self.height, pixel=self.pixels_set2)
         self.fr.init()
         self.brightness = brightness
@@ -54,7 +58,6 @@ class NeoPixel(object):
         self.animate_lr_pause_ticks= 0
         #self.animate_lr_pause_ticks= COUNT_PAUSE_LR_TICKS
         self.ltick =  time.time()
-        self.cursor_pos=0
         
         # Create the StateMachine with the ws2812 program, outputting on pin
         self.sm = rp2.StateMachine(0, ws2812, freq=8_000_000, sideset_base=Pin(PIN_NUM))
@@ -63,7 +66,7 @@ class NeoPixel(object):
         self.sm.active(1)
 
         # Display a pattern on the LEDs via an array of LED RGB values.
-        self.ar = array.array("I", [0 for _ in range(self.num_virtual)])
+        
         
         self.BLACK = (0, 0, 0)
         self.RED = (0, 15, 0)
@@ -139,20 +142,25 @@ class NeoPixel(object):
      
      
     def roll_window_pointer(self, dx:int, overdraw:str='no'):
-        if dx is not None and dx<=self.width and dx>=-self.width and dx!=0:
+        
+        if dx is not None and dx<=self.width and dx>=-self.width :
             self.animate_dx=dx
-        if dx is not None and dx<-self.width_virtual*10: #initial to 0
+        if dx is not None and dx< -self.width_virtual*10: #initial to 0
             self.x_window_pos = 0
             return
-        self.x_window_pos += self.animate_dx #   
+        if self.animate_dx==0:
+            self.x_window_pos = 0
+            return 
+        else:
+            self.x_window_pos += self.animate_dx
         overdraw_val = self.width if overdraw=='yes' else 0 #over draw on virtual window
         
         if overdraw=='lr':
-            if self.cursor_pos>0 and self.cursor_pos>self.width:
+            if self.cursor_pos>self.width:
                 max_window_pos=self.cursor_pos-self.width
             else:
                 max_window_pos=self.width_virtual-self.width-1
-            if self.x_window_pos>=max_window_pos: #  
+            if self.x_window_pos > max_window_pos: #  
                 self.x_window_pos = max_window_pos # max val is 47 (draws only 1 vertical bar right)
                 self.animate_lr_pause_ticks -=1 
                 if self.animate_lr_pause_ticks>0:
@@ -178,18 +186,7 @@ class NeoPixel(object):
         self.roll_window_pointer(dx=dx, overdraw=overdraw)
         self.pixels_show()
             
-    def mdroll_right(self, cycle=False):
-        l_pix=self.ar[self.num_virtual-1]
-        self.ar=array.array("I", [0 for _ in range(1)])+self.ar[0:self.num_virtual-1]
-        for r in range(self.height): ##10
-            if cycle:
-                if r<self.height-1:
-                    self.ar[r*self.width_virtual]=self.ar[(r+1)*self.width_virtual]   #16  [0] stay [15+1(shift above)], 16 ->
-                else:
-                    self.ar[r*self.width_virtual]=l_pix
-            else:
-                self.ar[r*self.width_virtual]=0   #16
-        self.pixels_show()
+ 
 
     def roll_right(self, cycle=False):
         l_pix=self.ar[self.num-1]
@@ -207,19 +204,7 @@ class NeoPixel(object):
                 self.ar[r*self.width]=0   #16
         self.pixels_show()
 
-    def mdroll_left(self, cycle=False):
-        l_pix=self.ar[0]
-        self.ar=self.ar[1:self.num_virtual]+array.array("I", [0 for _ in range(1)])
-        for r in reversed(range(self.height)): ##10  0..9 9-r -> 9..0
-            if cycle:
-                if r==0:
-                    self.ar[(r+1)*self.width_virtual-1]=l_pix
-                else:
-                    self.ar[(r+1)*self.width_virtual-1]=self.ar[r*self.width_virtual-1]
-                       
-            else:
-                self.ar[(r+1)*self.width_virtual-1]=0   #16 0+1*16
-        self.pixels_show()
+ 
 
     def roll_left(self, cycle=False):
         l_pix=self.ar[0]
@@ -237,24 +222,42 @@ class NeoPixel(object):
             else:
                 self.ar[(r+1)*self.width-1]=0   #16 0+1*16
         self.pixels_show()
-
+    
+    def clear(self, virtual_width:int = DISPLAY_VIRTUAL_WIDTH):
+        self.x_window_pos = 0
+        self.cursor_pos=0
+        if virtual_width!= self.width_virtual:
+            self.width_virtual = virtual_width
+            self.num = self.width * self.height
+            self.num_virtual = self.width_virtual * self.height
+            self.ar = array.array("I", [0 for _ in range(self.num_virtual)])
+        else:    
+            self.pixels_fill(self.BLACK)
+        
+        
+        
+    
     def text(self, text, x, y, color):
         self.animateType='No'
         self.fr.text(text, x, y, color)
-        self.cursor_pos=self.fr._cursor_pos
+        print('self.fr._cursor_pos=',self.fr._cursor_pos)
+        if self.fr._cursor_pos>0:
+            self.cursor_pos=self.fr._cursor_pos-1
+        else:
+            self.cursor_pos=0
         self.animate_lr_pause_ticks=COUNT_PAUSE_LR_TICKS
         self.x_window_pos = 0
-        self.animate_dx= 1
-        if self.cursor_pos<self.width:
+        self.animate_dx= -1
+        if self.cursor_pos<=self.width:
             self.animate_dx= 0
-        print('cursor pos is ',self.cursor_pos)
+        print('cursor pos is ',self.cursor_pos,'animateDX=',self.animate_dx)
         
     def animate(self, p_type=None, p_delay=0.3):
         if p_type is not None:
             self.animateType=p_type
             self.ltick =  time.time()
             self.x_window_pos = 0
-            self.animate_dx= 1
+            # self.animate_dx= 1
 
         if p_delay is not None:
             self.animateDelay=p_delay
