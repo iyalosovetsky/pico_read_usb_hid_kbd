@@ -157,7 +157,7 @@ class NeoPixel(object):
         
         if overdraw=='lr':
             if self.cursor_pos>self.width:
-                max_window_pos=self.cursor_pos-self.width
+                max_window_pos=self.cursor_pos-self.width+1
             else:
                 max_window_pos=self.width_virtual-self.width-1
             if self.x_window_pos > max_window_pos: #  
