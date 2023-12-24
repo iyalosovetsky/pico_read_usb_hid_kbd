@@ -12,6 +12,16 @@ DISPLAY_HEIGHT = 10     # Display height in pixels.
 INTENSITY      = 50   # Message pixel brightness (0-255).
 SPEED          = 25.0  # Scroll speed in pixels per second.
 COUNT_PAUSE_LR_TICKS = 10 # pause tick for display left/right max pos window 
+BLACK = (0, 0, 0)
+
+# BLACK = (0, 0, 0)
+# RED = (0, 15, 0)
+# YELLOW = (15, 15, 0)
+# GREEN = (15, 0, 0)
+# CYAN = (0, 15, 15)
+# BLUE = (0, 0, 15)
+# PURPLE = (15, 0, 15)
+# WHITE = (15, 15, 15)
 
 # Configure the number of WS2812 LEDs.
 # NUM_LEDS = DISPLAY_VIRTUAL_WIDTH * DISPLAY_HEIGHT
@@ -68,14 +78,14 @@ class NeoPixel(object):
         # Display a pattern on the LEDs via an array of LED RGB values.
         
         
-        self.BLACK = (0, 0, 0)
-        self.RED = (0, 15, 0)
-        self.YELLOW = (15, 15, 0)
-        self.GREEN = (15, 0, 0)
-        self.CYAN = (0, 15, 15)
-        self.BLUE = (0, 0, 15)
-        self.PURPLE = (15, 0, 15)
-        self.WHITE = (15, 15, 15)
+        # self.BLACK = BLACK
+        # self.RED = RED
+        # self.YELLOW = YELLOW
+        # self.GREEN = GREEN
+        # self.CYAN = CYAN
+        # self.BLUE = BLUE
+        # self.PURPLE = PURPLE
+        # self.WHITE = WHITE
         
     ##########################################################################
     def pixels_show0(self):
@@ -119,6 +129,9 @@ class NeoPixel(object):
     def pixels_fill(self, color):
         for i in range(len(self.ar)):
             self.pixels_set(i, color)
+
+    def clear(self):
+        self.pixels_fill(BLACK)
 
     def color_chase(self, color, length):
         #for i in range(self.num):
@@ -232,32 +245,40 @@ class NeoPixel(object):
             self.num_virtual = self.width_virtual * self.height
             self.ar = array.array("I", [0 for _ in range(self.num_virtual)])
         else:    
-            self.pixels_fill(self.BLACK)
+            self.pixels_fill((0,0,0))
         
         
         
     
-    def text(self, text, x, y, color):
+    def text(self, text, x, y, color, no_clear_wnd_pos=False):
         self.animateType='No'
         self.fr.text(text, x, y, color)
-        print('self.fr._cursor_pos=',self.fr._cursor_pos)
         if self.fr._cursor_pos>0:
             self.cursor_pos=self.fr._cursor_pos-1
         else:
             self.cursor_pos=0
-        self.animate_lr_pause_ticks=COUNT_PAUSE_LR_TICKS
-        self.x_window_pos = 0
-        self.animate_dx= -1
-        if self.cursor_pos<=self.width:
-            self.animate_dx= 0
-        print('cursor pos is ',self.cursor_pos,'animateDX=',self.animate_dx)
+        if not no_clear_wnd_pos:    
+            self.animate_lr_pause_ticks=COUNT_PAUSE_LR_TICKS
+            self.x_window_pos = 0
+            self.animate_dx= -1
+            if self.cursor_pos<=self.width:
+                self.animate_dx= 0
+        #print('cursor pos is ',self.cursor_pos,'animateDX=',self.animate_dx, self.animateType)
         
     def animate(self, p_type=None, p_delay=0.3):
-        if p_type is not None:
+        if p_type is not None and (self.animateType!=p_type or p_type=='edit'):
             self.animateType=p_type
             self.ltick =  time.time()
-            self.x_window_pos = 0
-            # self.animate_dx= 1
+            if p_type=='edit' and self.cursor_pos<=self.width:
+                self.x_window_pos = 0
+                self.animate_dx= 0
+            elif p_type=='edit' and self.cursor_pos>self.width:    
+                self.x_window_pos = self.cursor_pos - self.width + 1
+                self.animate_dx= 0
+            else:
+                self.x_window_pos = 0    
+            
+            
 
         if p_delay is not None:
             self.animateDelay=p_delay

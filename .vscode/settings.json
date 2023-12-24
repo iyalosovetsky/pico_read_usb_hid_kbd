@@ -4,6 +4,7 @@
     },
     "cSpell.words": [
         "alrm",
+        "getc",
         "grblstate",
         "ltick",
         "mpos",
@@ -12,6 +13,7 @@
         "rctrl",
         "ropt",
         "rxdata",
-        "sideset"
+        "sideset",
+        "statetext"
     ]
 }
