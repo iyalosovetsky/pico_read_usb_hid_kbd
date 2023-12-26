@@ -85,14 +85,7 @@ X_ARROW_COLOR = 'red'
 Y_ARROW_COLOR = 'green'
 Z_ARROW_COLOR = 'blue'
 
-BLACK = (0, 0, 0)
-RED = (0, 15, 0)
-YELLOW = (15, 15, 0)
-GREEN = (15, 0, 0)
-CYAN = (0, 15, 15)
-BLUE = (0, 0, 15)
-PURPLE = (15, 0, 15)
-WHITE = (15, 15, 15)
+
 
 
 from neopixel import NeoPixel
@@ -133,13 +126,20 @@ class GrblState(object):
         self.flashKbdLEDs = kbd.flashKbdLeds
         self.uart_grbl_mpg = uart_grbl_mpg
         self.neo = NeoPixel()
+        self.neo.setStateBottomRight([0,0,0]) # state on RB of display
         self._jog_arrow = ''
         self.idleCounter = 0
         self.statetext = ''
         self.prev_statetext  = ''
         self._state_time_change = time.time()
+        self.hello()
+        
 
 
+    def hello(self):
+       self.neo.clear()
+       self.neoText('GrblHAL', color = 'YELLOW', animate = 'window-left-right') 
+       
     def inc_feedrate(self):
       if self._feedrate+100.0 > C_FEED_MAX:
            self._feedrate = C_FEED_MAX
@@ -372,10 +372,10 @@ class GrblState(object):
       if self.mpg is not None and (self.mpg_prev is None or self.mpg !=self.mpg_prev):
           self._mpg_prev=self._mpg
           self.flashKbdLEDs(LED_SCROLLLOCK , BLINK_5 if self.mpg else BLINK_2) 
-          if self.mpg:
-            self.neoInfo('MPG:1',color='green')
-          else:
-             self.neoInfo('MPG:0',color='purple')  
+          # if self.mpg:
+          #   self.neoInfo('MPG:1',color='green')
+          # else:
+          #    self.neoInfo('MPG:0',color='purple')  
       if self.state_is_changed() or self.state == 'idle' or self.state.startswith('hold') :  
               if self.state == 'alarm':
                   self._jog_arrow = ''
@@ -402,28 +402,7 @@ class GrblState(object):
                   self.flashKbdLEDs(LED_ALL , NOBLINK) 
                   self.neoIdle()
     
-    @staticmethod
-    def color2rgb(color:str = 'PURPLE'):
-      if color.upper()=='PURPLE':
-         return PURPLE
-      elif color.upper()=='RED':
-         return RED
-      elif color.upper()=='GREEN':
-         return GREEN
-      elif color.upper()=='BLUE':
-         return BLUE
-      elif color.upper()=='BLACK':
-         return BLACK
-      elif color.upper()=='CYAN':
-         return CYAN
-      elif color.upper()=='WHITE':
-         return WHITE
-      elif color.upper()=='YELLOW':
-         return YELLOW
-      else:
-         return WHITE
 
-       
 
     def neoText(self,text:str, color = 'PURPLE', animate:str = 'None', virtual_width:int = 64  ) :     
 
@@ -438,9 +417,9 @@ class GrblState(object):
          cl0 = ['PURPLE']
       for cli  in range(len(cl0)):
          if len(cl)<cli+1:
-            cl.append(self.color2rgb(cl0[cli]))
+            cl.append(self.neo.color2rgb(cl0[cli]))
          else:
-            cl[cli] = self.color2rgb(cl0[cli]) 
+            cl[cli] = self.neo.color2rgb(cl0[cli]) 
 
          
             
@@ -450,6 +429,18 @@ class GrblState(object):
       self.neo.clear(virtual_width=virtual_width)
       self.neo.text(text, 0, 0,cl,no_clear_wnd_pos=(self.prev_statetext == self.statetext) )
       self.neo.animate(p_type=animate, p_delay=0.3)
+      arrState=self.neo.rbState
+      if self._mpg:
+         arrState[0]=self.neo.color2rgbInt('GREEN')
+      else:
+         arrState[0]=self.neo.color2rgbInt('PURPLE',0.01)   
+      if  self.state == 'alarm':
+         arrState[2]=self.neo.color2rgbInt('RED')
+      else:
+         arrState[2]=self.neo.color2rgbInt('BLACK')   
+      self.neo.setStateBottomRight(arrState)
+
+         
       self.neo.pixels_show()
 
     def neoError(self,text:str, color:str = 'red', animate:str = 'window-left-right' ) :     

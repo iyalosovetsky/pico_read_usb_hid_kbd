@@ -142,7 +142,9 @@ KBD2GRBL ={
     'pause':'!', 
     '?':'?',
     '#':'#',
+    'scrollLock':'#', # to toggle mpg MPG mode
     '^':'^',
+    'f12':'^', # sends $X to grbl to unlock CNC from alarm mode
     '@':'@'
 
 }
@@ -156,7 +158,13 @@ class SmartKbd(object):
         self.grblPrevCommand = ''
 
         self.grblMacro={}
-    
+        self.grblStateObj=  None
+        
+        
+
+    def objGrblStateSetter(self,grblStateObj):
+        self.grblStateObj = grblStateObj
+
     @staticmethod
     def getKeyName( kbdData):
         l_char=''
@@ -251,3 +259,49 @@ class SmartKbd(object):
         self.cmd[2]=255-kk
         self.uart_kbd.write(self.cmd)
         # print("sended 0 ->"," ".join(hex(n) for n in self.cmd))
+
+    def proceedChars(self,rxdata:str, DEBUG:bool = False  ): 
+        if self.grblStateObj is None:
+            print('No grblStateObj FOUND!!!')
+            return
+  
+        for i in range(0, len(rxdata), 8):
+            line1 = rxdata[i:i + 8] 
+            l_char, l_shift, l_ctrl, l_caps = self.getKeyName(line1)
+            # print("gets[string0/1 char ->",l_char,"error ->",l_ctrl,l_caps," ".join(hex(n) for n in line1))
+            if l_char in ('enter'):
+               self.grblStateObj.sent2grbl(self.getc())
+            elif l_char == 'space' or l_char =='shift space':
+                self.put_char(' ')
+                self.grblStateObj.neoShowEdit()
+            elif l_char == 'backspace' or l_char =='shift backspace':
+                self.backspace()
+                self.grblStateObj.neoShowEdit()
+            elif l_char in ('~','!','?','#','^','@') or \
+                    l_char =='left' or l_char =='right' or l_char =='pageUp' or l_char =='pageDown' or \
+                    l_char =='up' or l_char =='down' or \
+                    l_char =='f1' or l_char =='f2' or l_char =='f3' or l_char =='f4' or \
+                    l_char =='f5' or l_char =='f6' or l_char =='f7' or l_char =='f8' or \
+                    l_char =='f9' or l_char =='f10' or l_char =='f11' or l_char =='f12' or \
+                    l_char =='esc' or l_char =='pause'  or l_char =='scrollLock' : 
+                    self.grblStateObj.sent2grbl(self.chars2Grbl(l_char))
+                    self.clear()
+            elif l_char.startswith('ctrl-f') and len(l_char)>6:
+                self.grblStateObj.sent2grbl(self.get_macro(l_char[5:]))
+                self.clear()
+            elif l_char.startswith('alt-f') and len(l_char)>5:
+                self.set_macro(l_char[4:])
+                self.grblStateObj.neoShowEdit()
+
+            elif not(l_char.startswith('alt-') or l_char.startswith('shift-') or l_char.startswith('ctrl-') or l_char.startswith('opt-')
+                        or l_char.startswith('ralt-') or l_char.startswith('rshift-') or l_char.startswith('rctrl-') or l_char.startswith('ropt-')):    
+                self.put_char(l_char) 
+                self.grblStateObj.neoShowEdit()
+
+        if DEBUG:
+            try:
+                print("end of get ->",self.grblCommand, l_shift,hex(rxdata[1]),rxdata[2],rxdata[3],l_char)
+            except Exception as e1:
+                print("rt error",e1)
+                
+            print()

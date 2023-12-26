@@ -14,14 +14,14 @@ SPEED          = 25.0  # Scroll speed in pixels per second.
 COUNT_PAUSE_LR_TICKS = 10 # pause tick for display left/right max pos window 
 BLACK = (0, 0, 0)
 
-# BLACK = (0, 0, 0)
-# RED = (0, 15, 0)
-# YELLOW = (15, 15, 0)
-# GREEN = (15, 0, 0)
-# CYAN = (0, 15, 15)
-# BLUE = (0, 0, 15)
-# PURPLE = (15, 0, 15)
-# WHITE = (15, 15, 15)
+BLACK = (0, 0, 0)
+RED = (0, 15, 0)
+YELLOW = (15, 15, 0)
+GREEN = (15, 0, 0)
+CYAN = (0, 15, 15)
+BLUE = (0, 0, 15)
+PURPLE = (15, 0, 15)
+WHITE = (15, 15, 15)
 
 # Configure the number of WS2812 LEDs.
 # NUM_LEDS = DISPLAY_VIRTUAL_WIDTH * DISPLAY_HEIGHT
@@ -68,6 +68,7 @@ class NeoPixel(object):
         self.animate_lr_pause_ticks= 0
         #self.animate_lr_pause_ticks= COUNT_PAUSE_LR_TICKS
         self.ltick =  time.time()
+        self._stateBottomRight = [] # state on right bottom corner
         
         # Create the StateMachine with the ws2812 program, outputting on pin
         self.sm = rp2.StateMachine(0, ws2812, freq=8_000_000, sideset_base=Pin(PIN_NUM))
@@ -77,15 +78,25 @@ class NeoPixel(object):
 
         # Display a pattern on the LEDs via an array of LED RGB values.
         
-        
-        # self.BLACK = BLACK
-        # self.RED = RED
-        # self.YELLOW = YELLOW
-        # self.GREEN = GREEN
-        # self.CYAN = CYAN
-        # self.BLUE = BLUE
-        # self.PURPLE = PURPLE
-        # self.WHITE = WHITE
+
+
+    def setStateBottomRight(self,arrState):
+       if arrState is None or len(arrState)>self.width:
+           print ('setRBState: error arr size!!',len(arrState) )
+       self._stateBottomRight =arrState
+    #    for  ii in range(len(self._stateBottomRight)):
+    #       c = self._stateBottomRight[ii]
+    #       r = int(((c >> 8) & 0xFF) * self.brightness)
+    #       g = int(((c >> 16) & 0xFF) * self.brightness)
+    #       b = int((c & 0xFF) * self.brightness)
+    #       c2 = (g<<16) + (r<<8) + b
+    #       if c2!=c:
+    #           self._stateBottomRight[ii]=c2
+              
+    @property
+    def rbState(self):
+            return self._stateBottomRight     
+
         
     ##########################################################################
     def pixels_show0(self):
@@ -102,14 +113,18 @@ class NeoPixel(object):
         for col in range(self.width): # cols
             col_virt=col+self.x_window_pos # offset in virtual window
             for row in range(self.height):
-                if col_virt>=self.width_virtual or  col_virt<0: #overdraw right or left -> black
-                    c2 = 0
+                c2 = 0
+                if len(self._stateBottomRight)>0 and row==self.height-1 and col>= self.width-len(self._stateBottomRight) : # for example 3 status on bottom light corner 13,14,15 led 16-3
+                    c2 = self._stateBottomRight[len(self._stateBottomRight)-(self.width-col)] # 3 -[16-13]=0, 3 -[16-14]=1    , 3 -[16-15]=2
                 else:
-                    c = self.ar[row*self.width_virtual+col_virt]    
-                    r = int(((c >> 8) & 0xFF) * self.brightness)
-                    g = int(((c >> 16) & 0xFF) * self.brightness)
-                    b = int((c & 0xFF) * self.brightness)
-                    c2 = (g<<16) + (r<<8) + b
+                    if col_virt>=self.width_virtual or  col_virt<0: #overdraw right or left -> black
+                      c2 = 0  
+                    else:
+                        c = self.ar[row*self.width_virtual+col_virt]    
+                        r = int(((c >> 8) & 0xFF) * self.brightness)
+                        g = int(((c >> 16) & 0xFF) * self.brightness)
+                        b = int((c & 0xFF) * self.brightness)
+                        c2 = (g<<16) + (r<<8) + b
                 dimmer_ar[row*self.width+col] = c2
         self.sm.put(dimmer_ar, 8)
 
@@ -306,7 +321,38 @@ class NeoPixel(object):
         elif self.animateType == 'window-left-right':
             self.roll_window(overdraw='lr', dx=None)    
             
-            
+    @staticmethod
+    def color2rgb(color:str = 'PURPLE'):
+      if color.upper()=='PURPLE':
+         return PURPLE
+      elif color.upper()=='RED':
+         return RED
+      elif color.upper()=='GREEN':
+         return GREEN
+      elif color.upper()=='BLUE':
+         return BLUE
+      elif color.upper()=='BLACK':
+         return BLACK
+      elif color.upper()=='CYAN':
+         return CYAN
+      elif color.upper()=='WHITE':
+         return WHITE
+      elif color.upper()=='YELLOW':
+         return YELLOW
+      else:
+         return WHITE
+
+    @staticmethod
+    def color2rgbInt(color:str = 'PURPLE', brightness:float =0.1 ):
+      cl=NeoPixel.color2rgb(color)
+      br = 15.99* (0.99 if brightness>1.0 else brightness)
+      #47 b
+      #47*256 g
+      #47*256*256 r
+      b = int(br *cl[2])
+      r = int(br *cl[1])
+      g = int(br *cl[0])
+      return (r<<16) + (g<<8) + b           
         
 
 
