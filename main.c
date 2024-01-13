@@ -37,8 +37,11 @@ static uint8_t modCtrl = 0;
 static uint8_t modLed = 0;
 static uint8_t modChanged = 0;
 // Keyboard LED control
-static uint8_t leds = 0x01; // todo check for 0x00
-static uint8_t prev_leds = 0xFF;
+static uint8_t lockModifiers = 0x01; // todo check for 0x00
+static uint8_t prev_lockModifiers = 0xFF;
+static uint8_t ledModifiers = 0x01; // todo check for 0x00
+static uint8_t prev_ledModifiers = 0xFF;
+
 static uint8_t devAddrArr[5] = {0};
 static uint8_t instanceArr[5] = {0};
 static uint8_t deviceCount = 0;
@@ -145,10 +148,10 @@ static void appLed(void){
 	#define MACROBASE 4
   // interval of blinking in us
 	#define TIMECONST 500000
-  // varible to store  caps num  scroll before apply macro
+  // variable to store  caps num  scroll before apply macro
 	static uint8_t defaultLeds = 1;
-  // variable to itterate count of blink for specified macro
-	static uint32_t modReapeat = 0;
+  // variable to iterate count of blink for specified macro
+	static uint32_t modRepeat = 0;
   static uint8_t modInit = 1;
 	static uint32_t timeout = 0;
 	if(modChanged == 1){
@@ -166,35 +169,35 @@ static void appLed(void){
 			switch(modCtrl){
 				case MACRO1: 
 					timeout = (time_us_32() + TIMECONST) % 0xffffffff;
-					modReapeat++;
-          if(modInit == 1) { leds =0; modInit = 0;}
-					leds = ((leds & modLed) ^ modLed);
-					if(modReapeat == MACROREAPEAT_1) modCtrl = MACROBASE;
+					modRepeat++;
+          if(modInit == 1) { ledModifiers =0; modInit = 0;}
+					ledModifiers = ((ledModifiers & modLed) ^ modLed);
+					if(modRepeat == MACROREAPEAT_1) modCtrl = MACROBASE;
 					break;
 				case MACRO2: 
 					timeout = (time_us_32() + TIMECONST) % 0xffffffff;
-					modReapeat++;
-					if(modInit == 1) { leds =0; modInit = 0;}
-					leds = ((leds & modLed) ^ modLed);
-					if(modReapeat == MACROREAPEAT_2) modCtrl = MACROBASE;
+					modRepeat++;
+					if(modInit == 1) { ledModifiers =0; modInit = 0;}
+					ledModifiers = ((ledModifiers & modLed) ^ modLed);
+					if(modRepeat == MACROREAPEAT_2) modCtrl = MACROBASE;
 					break;
         case MACRO3: // infinite blinking
 					timeout = (time_us_32() + TIMECONST) % 0xffffffff;
-					if(modInit == 1) { leds =0; modInit = 0;}
-					leds = ((leds & modLed) ^ modLed);
+					if(modInit == 1) { ledModifiers =0; modInit = 0;}
+					ledModifiers = ((ledModifiers & modLed) ^ modLed);
 					break;
 				default:
 					timeout = 0;				
-					modReapeat = 0;
+					modRepeat = 0;
 					modChanged = 0;
           modInit =1;					
-					leds = defaultLeds;
+					ledModifiers = lockModifiers;
 					break;
 			}
-      custom_led_send();
+      custom_led_send(); // for what??
 		}	
 		
-	} else 	defaultLeds = leds;
+	} else 	defaultLeds = lockModifiers;
 	
 }
 
@@ -280,10 +283,10 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
       instanceArr[deviceCount] = instance;
       deviceCount++;
     }
-    if (leds != prev_leds)
+    if (lockModifiers != prev_lockModifiers)
     {
-      tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT, &leds, sizeof(leds));
-      prev_leds = leds;
+      tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT, &lockModifiers, sizeof(lockModifiers));
+      prev_lockModifiers = lockModifiers;
     }
   }
 }
@@ -301,8 +304,8 @@ void custom_led_send(void){
 
     for(uint8_t i =0; i <= deviceCount; i++)
       {
-        tuh_hid_set_report(devAddrArr[i], instanceArr[i], 0, HID_REPORT_TYPE_OUTPUT, &leds, sizeof(leds));
-        prev_leds = leds;
+        tuh_hid_set_report(devAddrArr[i], instanceArr[i], 0, HID_REPORT_TYPE_OUTPUT, &lockModifiers, sizeof(lockModifiers));
+        prev_lockModifiers = lockModifiers;
       }
 }
 
@@ -388,24 +391,24 @@ static uint8_t process_kbd_report(hid_keyboard_report_t const *report)
 
         last_modifier = 0;
         if((report->keycode[i] == 0x39) && (report->keycode[i] != prev_caps)){
-          leds = leds ^ KEYBOARD_LED_CAPSLOCK;
+          lockModifiers = lockModifiers ^ KEYBOARD_LED_CAPSLOCK;
         }
         if((report->keycode[i] == 0x53) && (report->keycode[i] != prev_num)){
-          leds = leds ^ KEYBOARD_LED_NUMLOCK;
+          lockModifiers = lockModifiers ^ KEYBOARD_LED_NUMLOCK;
         }
         if((report->keycode[i] == 0x47) && (report->keycode[i] != prev_scroll)){
-          leds = leds ^ KEYBOARD_LED_SCROLLLOCK;
+          lockModifiers = lockModifiers ^ KEYBOARD_LED_SCROLLLOCK;
         }
         // not existed in previous report means the current key is pressed
         bool const is_shift = report->modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
 
 
         putchar_raw(PROT_SOF);
-        putchar_raw(leds);
+        putchar_raw(lockModifiers);
         putchar_raw(report->modifier);
         putchar_raw(report->keycode[i]);
         
-        putchar_raw(~leds);
+        putchar_raw(~lockModifiers);
         putchar_raw(~report->modifier);
         putchar_raw(~report->keycode[i]);
         putchar_raw(PROT_EOF);
@@ -417,17 +420,17 @@ static uint8_t process_kbd_report(hid_keyboard_report_t const *report)
   }
 
   prev_report = *report;
-  return leds;
+  return lockModifiers;
 }
 // void tuh_hid_report_sent_cb(uint8_t dev_addr, uint8_t instance, const uint8_t *report, uint16_t len){
 //         process_kbd_led(dev_addr, instance, (hid_keyboard_report_t const *)report);
 // }
 
 void process_kbd_led(uint8_t dev_addr, uint8_t instance, hid_keyboard_report_t const *report){
-    if (leds != prev_leds)
+    if (ledModifiers != prev_ledModifiers)
     {
-      tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT, &leds, sizeof(leds));
-      prev_leds = leds;
+      tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT, &ledModifiers, sizeof(ledModifiers));
+      prev_ledModifiers = ledModifiers;
     }
 }
 

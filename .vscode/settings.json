@@ -1,19 +1,29 @@
 {
     "files.associations": {
-        "random": "c"
+        "random": "c",
+        "timer.h": "c",
+        "irq.h": "c",
+        "uart.h": "c"
     },
     "cSpell.words": [
         "alrm",
         "getc",
         "grblstate",
+        "LEFTSHIFT",
         "ltick",
+        "MACROBASE",
+        "MACROREAPEAT",
         "mpos",
+        "nanolib",
         "neopixel",
         "ralt",
         "rctrl",
+        "RIGHTSHIFT",
         "ropt",
         "rxdata",
         "sideset",
-        "statetext"
+        "statetext",
+        "textline",
+        "TIMECONST"
     ]
 }
