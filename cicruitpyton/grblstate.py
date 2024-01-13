@@ -638,3 +638,7 @@ class GrblState(object):
         self.idleCounter +=1
         self.neoText(text=text, color=color, animate = animate, virtual_width = virtual_width )                               
 
+#todo new area Gcode line . Display there command and result, clear when new state parsed and state not in run and jog
+
+#and it for  manual comands      
+        
