@@ -184,13 +184,14 @@ now = time.localtime()
 
 
 msg_conf = [
-    ('x', 'X', VFD_GREEN, 190, 15, 3),
-    ('y', 'Y', VFD_RED, 190, 55, 3),
-    ('z', 'Z', VFD_BLUE, 190, 95, 3),
-    ('state', 'State', VFD_PURPLE, 190, 150, 4),
-    ('icon', 'icon', VFD_PURPLE, 60, 60, 4),
-    ('info', 'info', VFD_WHITE, 0, 200, 1)
-]
+            ('x', '     ', VFD_GREEN, 190, 15, 3),
+            ('y', '     ', VFD_RED, 190, 55, 3),
+            ('z', '     ', VFD_BLUE, 190, 95, 3),
+            ('cmd', '     ', VFD_WHITE, 0, 170, 2),
+            ('state', '     ', VFD_WHITE, 190, 130, 2),
+            ('icon', '    ', VFD_PURPLE, 60, 60, 4),
+            ('info', '    ', VFD_WHITE, 0, 200, 1)
+        ]
 
 labels = {}  # dictionary of configured messages_labels
 
@@ -216,7 +217,7 @@ i=0
 textF=''
 state=''
 state='<Jog|MPos:0.000,0.000,0.000|Bf:35,1023|FS:0,0,0|WCO:0.000,0.000,0.000|WCS:G54|A:|Sc:|MPG:1|H:0|T:0|TLR:0>'
-
+command='$J=G91 G21 Y10.0 F1000.0'
 len1=0
 for cc in state.split('|'):
     if textF=='':
@@ -245,16 +246,18 @@ while True:
         # update text property to change the text showing on the display
         now = time.localtime()
         i+=1
-        if i%6==0:
+        if i%7==0:
             labels['x'].text = '10.02'
-        elif i%6==1:
+        elif i%7==1:
             labels['y'].text = '-520.12'
-        elif i%6==2:
+        elif i%7==2:
             labels['z'].text = '-27.39'
-        elif i%6==3:
+        elif i%7==3:
             labels['info'].text = textF
-        elif i%6==4:
+        elif i%7==4:
             labels['icon'].text = '>>>'
+        elif i%7==5:
+            labels['cmd'].text = command
         else:
             labels['state'].text = state
             if state.startswith('Alarm'):
@@ -272,6 +275,7 @@ while True:
         time.sleep(1)
     except KeyboardInterrupt:
         break
+
 
 
 

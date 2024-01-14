@@ -175,35 +175,47 @@ kbd.objGrblStateSetter(st)
 
 
 start_time_q =time.time()
+start_time_cmd = time.time() 
 uartMPG.write(bytearray(b'\x8b\r\n'))
-DEBUG = False
+DEBUG = True
+
 while True:
-    
-   if time.time()-start_time_q>3:
-        st.sent2grbl('?') # get status from grbl cnc machine
+  try:  
+    if time.time()-start_time_q>3:
+        #st.send2grbl('?') # get status from grbl cnc machine
+        st.send2grblOne('?') # get status from grbl cnc machine
         start_time_q = time.time()
-   mpgCons=''
-   ii_mpgCons=0     
-   while ii_mpgCons<20:
-       mpgConsole=uartMPG.read(100)
-       ii_mpgCons +=1
-       if mpgConsole is not None:
+    mpgConsole=''
+    ii_mpgCons=0     
+    while ii_mpgCons<20:
+        mpgConsolePart=uartMPG.read(100)
+        ii_mpgCons +=1
+        if mpgConsolePart is not None:
           start_time_q = time.time()
-          mpgCons+=mpgConsole.decode()
+          mpgConsole+=mpgConsolePart.decode()
           #print(mpgCons)
-       else:
+        else:
           break
-       time.sleep(0.1) 
-   if mpgCons is not None and mpgCons!='': 
-       print(mpgCons)
-       st.displayState(mpgCons)
-   proceedCh=''    
-   while supervisor.runtime.serial_bytes_available:
+        time.sleep(0.1) 
+    if mpgConsole is not None and mpgConsole!='': 
+        if DEBUG:
+            print('mpgConsole:',mpgConsole)
+        st.displayState(mpgConsole)
+    proceedCh=''    
+    while supervisor.runtime.serial_bytes_available:
         start_time_q = time.time()
         proceedCh += sys.stdin.read(1)
-   if proceedCh!='':
-       print(proceedCh,[ord(res) for res in proceedCh])
-       kbd.proceedChars(proceedCh, DEBUG)
+    if proceedCh!='':
+        if DEBUG:
+            print('proceedCh:',proceedCh,[ord(res) for res in proceedCh])
+        kbd.proceedChars(proceedCh, DEBUG)
+    if time.time()-start_time_cmd>1:
+        st.popCmd2grbl()
+        start_time_cmd = time.time()    
+    time.sleep(0.1)
+  except KeyboardInterrupt:
+        print('main: will cancel')
+        st.send2grblOne('cancel')
        
         
             

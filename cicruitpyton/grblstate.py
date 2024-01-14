@@ -107,6 +107,7 @@ VFD_BG = 0x000505
 import   time
 from adafruit_display_text import label
 import terminalio
+import microcontroller
 
 class GrblState(object):
     def __init__(self,kbd,uart_grbl_mpg,neo,
@@ -122,6 +123,7 @@ class GrblState(object):
                   dZ:float = 1.0,
                   feedrate =  1000.0
                   ) :
+        self.__version__ = '0.1'
         self._state = state
         self._state_prev = ''
         self._error = ''
@@ -139,21 +141,25 @@ class GrblState(object):
         self._feedrate = feedrate
         self._state_is_changed = False
         self.grbl_state = ''
+        self._execProgress = 'ok'
         self.kbd = kbd
         self.uart_grbl_mpg = uart_grbl_mpg
         self.neo = neo
         self.neo.setStateBottomRight([0,0,0]) # state on RB of display
         self._jog_arrow = ''
         self.idleCounter = 0
+        self.editCmd = ''
         self.statetext = ''
         self.prev_statetext  = ''
+        self.grblCmd2send=[]
         self._state_time_change = time.time()
         self._msg_conf = [
             ('x', '     ', VFD_GREEN, 190, 15, 3),
             ('y', '     ', VFD_RED, 190, 55, 3),
             ('z', '     ', VFD_BLUE, 190, 95, 3),
-            ('state', '     ', VFD_WHITE, 190, 150, 4),
-            ('icon', '    ', VFD_PURPLE, 60, 60, 4),
+            ('cmd', '     ', VFD_WHITE, 0, 170, 2),
+            ('state', '     ', VFD_WHITE, 190, 130, 2),
+            ('icon', 'grbl', VFD_PURPLE, 60, 60, 4),
             ('info', '    ', VFD_WHITE, 0, 200, 1)
         ]
         self.labels = {}  # dictionary of configured messages_labels
@@ -224,7 +230,7 @@ class GrblState(object):
         elif id=='z':
           self.labels[id].text = '{0:.1f}'.format(self._mZ)  
           self.labels[id].color=VFD_ARROW_Z
-        elif id=='icon':
+        elif id=='cmd':
           self.labels[id].text = text
           if color is None:
              self.labels[id].color=VFD_PURPLE
@@ -253,10 +259,14 @@ class GrblState(object):
 
              
     def hello(self):
-       self.neoLabel('GrblHAL',id='icon',color=VFD_YELLOW)
+       self.neoLabel('GrblHAL v'+self.__version__,id='cmd',color=VFD_YELLOW)
        time.sleep(0.5)
-       self.neoLabel('       ',id='icon',color=VFD_YELLOW)
-          
+       #self.neoLabel('       ',id='cmd',color=VFD_YELLOW)
+
+    def neoIcon(self,text,color=None) :     
+        self.neoLabel(text,id='icon',color=VFD_YELLOW if color is None else  color)
+
+
        
     def inc_feedrate(self):
       if self._feedrate+100.0 > C_FEED_MAX:
@@ -316,6 +326,8 @@ class GrblState(object):
     def mpgCommand(self, command:str):
       if DEBUG or (command is not None and command!='' and not command.startswith('?')) :
         print("mpgCommand:",command)
+      if not( command.startswith('?') or command.startswith('!') or command.startswith('$') or command.startswith('$')):
+        self._execProgress='do'  
       self.uart_grbl_mpg.write(command.encode())
 
     #jog $J=G91 X0 Y-5 F600
@@ -335,92 +347,119 @@ class GrblState(object):
         self.set_jog_arrow(('+' if z>0 else '-')+'z')
         cmd=f'$J=G91 G21 Z{z} F{f}'
       if cmd !='':
-        self.neoLabel(cmd,id='icon')  
-        self.mpgCommand(cmd+'\r\n')
-        self.parseState('<Jog|FW:grblHAL>') 
+          self.neoLabel(cmd,id='cmd')  
+          self.mpgCommand(cmd+'\r\n')
+          self.neoDisplayJog() 
 
 
 
-    def sent2grbl(self,command:str):
+    def send2grblOne(self,command:str):
       if DEBUG or (command is not None and command!='' and not command.startswith('?')) :
-        print('sent2grbl:',command,len(command))
+        print('send2grblOne:',command,len(command))
       if command in ('~','!','?'):
         #self.flashKbdLEDs(LED_ALL , BLINK_2) ##7 - 3 leds       # 1 - macro1
         self.mpgCommand(command)
         if command !='?':
-          self.neoLabel(command,id='icon')
+          self.neoLabel(command,id='cmd')
         else:  
-           self.neoLabel('       ',id='icon')
+           self.neoLabel(self.editCmd if self.editCmd!='' else '       ',id='cmd')
       elif command=='-y':
-          if self.state=='idle':
-            self.grblJog(y=-self.step)
+          self.grblJog(y=-self.step)
       elif  command=='+y':
-          if self.state=='idle':
-            self.grblJog(y=self.step)
+          self.grblJog(y=self.step)
       elif command=='-x':
-          if self.state=='idle':
-            self.grblJog(x=-self.step)
+          self.grblJog(x=-self.step)
       elif  command=='+x':
-          if self.state=='idle':
-            self.grblJog(x=self.step)
+          self.grblJog(x=self.step)
       elif command=='-z':
-          if self.state=='idle':
-            self.grblJog(z=-self.step)
+          self.grblJog(z=-self.step)
       elif  command=='+z':
-          if self.state=='idle':
-            self.grblJog(z=self.step)
+          self.grblJog(z=self.step)
       elif command=='-feed' : 
           self.dec_feedrate()
-          self.neoInfo('feed {0:.0f}'.format(self._feedrate))
+          self.neoIcon('feed {0:.0f}'.format(self._feedrate))
       elif command=='+feed':
           self.inc_feedrate()
-          self.neoInfo('feed {0:.0f}'.format(self._feedrate))
+          self.neoIcon('feed {0:.0f}'.format(self._feedrate))
       elif command=='-stepXY' :    
           self.dec_stepXY()
           if self._dXY<1:
-            self.neoInfo('dX {0:.1f}'.format(self._dXY).replace('.',','))
+            self.neoIcon('dX {0:.1f}'.format(self._dXY).replace('.',','))
           else:  
-             self.neoInfo('dX {0:.0f}'.format(self._dXY))
+             self.neoIcon('dX {0:.0f}'.format(self._dXY))
       elif command=='+stepXY' :    
           self.inc_stepXY()
           if self._dXY<1:
-            self.neoInfo('dX {0:.1f}'.format(self._dXY).replace('.',','))
+            self.neoIcon('dX {0:.1f}'.format(self._dXY).replace('.',','))
           else:  
-             self.neoInfo('dX {0:.0f}'.format(self._dXY))
+             self.neoIcon('dX {0:.0f}'.format(self._dXY))
       elif command=='-stepZ' :    
           self.dec_stepZ()
           if self._dZ<1:
-            self.neoInfo('dZ {0:.1f}'.format(self._dZ).replace('.',','))
+            self.neoIcon('dZ {0:.1f}'.format(self._dZ).replace('.',','))
           else:  
-             self.neoInfo('dZ {0:.0f}'.format(self._dZ))
+             self.neoIcon('dZ {0:.0f}'.format(self._dZ))
       elif command=='+stepZ' :    
           self.inc_stepZ()
           if self._dZ<1:
-            self.neoInfo('dZ {0:.1f}'.format(self._dZ).replace('.',','))
+            self.neoIcon('dZ {0:.1f}'.format(self._dZ).replace('.',','))
           else:  
-             self.neoInfo('dZ {0:.0f}'.format(self._dZ))
+             self.neoIcon('dZ {0:.0f}'.format(self._dZ))
       elif command in ('#'):  
         #self.flashKbdLEDs(LED_SCROLLLOCK , BLINK_5) ##2 - leds ???       # 2 - macro1 10/2 blink
+        self.neoLabel(command,id='cmd')
         self.uart_grbl_mpg.write(bytearray(b'\x8b\r\n'))
       elif command in ('cancel'):  
-        if self.state == 'run' or self.state == 'jog':
+        # if self.state == 'run' or self.state == 'jog':
           #self.flashKbdLEDs(LED_SCROLLLOCK , BLINK_5) ##2 - leds ???       # 2 - macro1 10/2 blink
           self.uart_grbl_mpg.write(bytearray(b'\x85\r\n')) #Jog Cancel
           self.uart_grbl_mpg.write(bytearray(b'\x18\r\n')) # cancel ascii ctrl-x
+          self.neoLabel(command,id='cmd')
           time.sleep(1)
           self.uart_grbl_mpg.write(bytearray(b'?\r\n')) # 
-        else:
+        # else:
           #self.flashKbdLEDs(LED_ALL , BLINK_2) ##7 - 3 leds       # 1 - macro1
-          pass 
-              
+          # pass 
+      elif command in ('reset'):  
+          self.uart_grbl_mpg.write(bytearray(b'\x85\r\n')) #Jog Cancel
+          self.uart_grbl_mpg.write(bytearray(b'\x18\r\n')) # cancel ascii ctrl-x
+          self.neoLabel(command,id='cmd')
+          time.sleep(1)
+          self.uart_grbl_mpg.write(bytearray(b'?\r\n')) # 
+          time.sleep(1)
+          microcontroller.reset()
       elif command in ('^'):  
         #self.flashKbdLEDs(LED_ALL , BLINK_2) ##7 - 3 leds       # 1 - macro1
+        self.neoLabel('$X',id='cmd')
         self.uart_grbl_mpg.write('$X'.encode()+b'\r\n')
       else:
         if command.strip()!='':
-          self.neoInfo(command[:10],virtual_width = 128)
-        self.uart_grbl_mpg.write(command.encode()+b'\r\n')
+          # self.neoInfo(command[:10],virtual_width = 128)
+          self.neoLabel(command,id='cmd')
+          self.uart_grbl_mpg.write(command.encode()+b'\r\n')
+          if not(command.startswith('?') or command.startswith('!') or command.startswith('$') or command.startswith('$')):
+            self._execProgress='do'
 
+    def send2grbl(self,command:str):        
+      if DEBUG or (command is not None and command!='' and not command.startswith('?')) :
+        self.grblCmd2send.append(command)
+        print('send2grbl:',command,' queueLen=',len(self.grblCmd2send), self._execProgress)
+        if self._execProgress!='do':
+          self.popCmd2grbl()
+
+    def popCmd2grbl(self):
+      if len(self.grblCmd2send)>0:
+        l_cmd=self.grblCmd2send[0]
+        if self._execProgress == 'do' and (
+          l_cmd=='-y' or l_cmd=='+y' or 
+          l_cmd=='-x' or l_cmd=='+x' or 
+          l_cmd=='-z' or l_cmd=='+z' ):
+          print('popCmd2grbl: busy', self._execProgress, l_cmd )
+          return
+        else:
+          l_cmd=self.grblCmd2send.pop(0)
+          self.send2grblOne(l_cmd)
+            
 
     @property
     def feedrate(self):
@@ -455,20 +494,29 @@ class GrblState(object):
     def parseState(self,grblState:str):
         if grblState is None:
           return 
-        
-        i=5
-        while i>0 and grblState.endswith('ok'):
-          i-=1
-          grblState=grblState[:-2].strip()
+        if len(grblState)>5:
+          i=5
+          while i>0 and grblState.endswith('ok'):
+            i-=1
+            grblState=grblState[:-2].strip()
 
-        if not (grblState.startswith('<') and grblState.endswith('>')):
+        if not ((grblState.startswith('<') and grblState.endswith('>'))  or grblState.startswith('error:')  or grblState=='ok'):
           return         
         if grblState.startswith('error:'):
-          self._state='error'
+          self._execProgress='error'
+          self._state=grblState
+          self._state_is_changed = (self._state_prev is None or  self._state_prev != self._state)
+          self._state_prev = self._state
+          self._state_time_change = time.time()
+          return
+        elif grblState=='ok':
+          self._execProgress='ok'
+          self._state='ok'
           self._state_is_changed = (self._state_prev is None or  self._state_prev != self._state)
           self._state_prev = self._state
           self._state_time_change = time.time()
           return 
+ 
         
         self.grbl_state = grblState
 
@@ -480,6 +528,8 @@ class GrblState(object):
               self._state_prev = self._state
               self._state = token
               self._state_is_changed = (prv is None or  prv != self._state)
+              if self._execProgress=='do' and (self._state.startswith('idle') or self._state.startswith('alarm')) :
+                 self._execProgress='done'
               self._state_time_change = time.time()
               
             else:
@@ -504,35 +554,24 @@ class GrblState(object):
       
       if self.mpg is not None and (self.mpg_prev is None or self.mpg !=self.mpg_prev):
           self._mpg_prev=self._mpg
-          #self.flashKbdLEDs(LED_SCROLLLOCK , BLINK_5 if self.mpg else BLINK_2) 
-          # if self.mpg:
-          #   self.neoInfo('MPG:1',color='green')
-          # else:
-          #    self.neoInfo('MPG:0',color='purple')  
       if self.state_is_changed() or self.state == 'idle' or self.state.startswith('hold') :  
-
-              if self.state == 'alarm':
+              if self.state.startswith('alarm'):
                   self._jog_arrow = ''
-                  #self.flashKbdLEDs(LED_ALL , BLINK_INFINITE)
-                  # self.neoError('alrm')
+                  self.neoDisplayJog()
+                  self.neoIcon('^, shft+6')
                   self.neoLabel(self.state,id='state')
               elif self.state == 'run':    
-                  #self.flashKbdLEDs(LED_SCROLLLOCK , BLINK_5) 
-                  # self.neoInfo(self.state)  
                   self.neoLabel(self.state,id='state')
               elif self.state == 'jog':    
-                  #self.flashKbdLEDs(LED_SCROLLLOCK , BLINK_5) 
-                  # self.neoDisplayJog()
                   self.neoLabel(self.state,id='state')
+                  self.neoDisplayJog()
               elif self.state=='hold:1':
-                  #self.flashKbdLEDs(LED_NUMLOCK , BLINK_INFINITE)
-                  #self.neoError(self.state)  
                   self.neoLabel(self.state,id='state')
               elif self.state=='hold:0':
                   #self.flashKbdLEDs(LED_NUMLOCK , BLINK_5)
                   # self.neoInfo(self.state)  
                   self.neoLabel(self.state,id='state')
-              elif self.state == 'error': 
+              elif self.state.startswith('error'): 
                   self._jog_arrow = '' 
                   # self.neoError('err')  
                   #self.flashKbdLEDs(LED_CAPSLOCK , BLINK_5) 
@@ -575,8 +614,10 @@ class GrblState(object):
          arrState[0]='GREEN'
       else:
          arrState[0]='PURPLE'
-      if  self.state == 'alarm':
+      if  self.state.startswith('alarm'):
          arrState[2]='RED'
+      elif self.state.startswith('hold'):
+         arrState[2]='YELLOW'   
       else:
          arrState[2]='BLACK'   
       self.neo.setStateBottomRight(arrState)
@@ -584,61 +625,67 @@ class GrblState(object):
          
        
 
-    def neoError(self,text:str, color:str = 'red', animate:str = 'window-left-right' ) :     
-        self.neoText(text=text, color=color, animate = animate )     
+    # def neoError(self,text:str, color:str = 'red', animate:str = 'window-left-right' ) :     
+    #     self.neoText(text=text, color=color, animate = animate )     
 
-    def neoDisplayJog(self, animate:str = 'right-cycle' ) :     
+    def neoDisplayJog(self) :     
         color=X_ARROW_COLOR
         if self._jog_arrow[-1:]=='y':
            color=Y_ARROW_COLOR
         elif self._jog_arrow[-1:]=='z':  
            color=Z_ARROW_COLOR
 
-        text='>>>' if self._jog_arrow.startswith('+') else '<<<' 
-        print('    _jog_arrow=',self._jog_arrow)  
         # self.neoText(text=text, color=color, animate = animate, virtual_width = 16 )  
-        self.neoLabel(text=text,id='icon',color=color)   
+        if self._jog_arrow=='':
+           self.neoIcon(text='   ')   
+        else:
+          self.neoIcon(text='>>>' if self._jog_arrow.startswith('+') else '<<<',color=color)   
 
 
-    def neoInfo(self,text:str, color:str = 'purple', animate:str = 'window-left-right', virtual_width = 64 ) :     
-        self.neoText(text=text, color=color, animate = animate, virtual_width = virtual_width )  
+    # def neoInfo(self,text:str, color:str = 'purple', animate:str = 'window-left-right', virtual_width = 64 ) :     
+    #     self.neoText(text=text, color=color, animate = animate, virtual_width = virtual_width )  
+
+    def setEdit(self, text):
+       self.editCmd=text
 
     def neoShowEdit(self):
       self.idleCounter = 0
-      self.neoIdle()
+      # self.neoIdle()
+      self.neoLabel(text=self.editCmd,id='cmd')
                                 
 
-    def neoIdle(self, virtual_width = 64 ) :     
-        color = 'purple'
-        text = self.state
-        animate = 'window-left-right'
-        if self.kbd.get()!='':
-          if self.idleCounter>10 and self.idleCounter%10<=7:  
-            color = [X_ARROW_COLOR, Y_ARROW_COLOR , Z_ARROW_COLOR]
-            text = '{0:.1f} {1:.1f} {2:.1f}'.format(self._mX, self._mY, self._mZ).replace('.',',')
-            animate = 'window-left-right'
-          else:  
-           color = 'purple'
-           animate = 'edit'
-           text = self.kbd.get()
+    # def neoIdle(self, virtual_width = 64 ) :     
+    #     color = 'purple'
+    #     text = self.state
+    #     animate = 'window-left-right'
+    #     if self.kbd.get()!='':
+    #       if self.idleCounter>10 and self.idleCounter%10<=7:  
+    #         color = [X_ARROW_COLOR, Y_ARROW_COLOR , Z_ARROW_COLOR]
+    #         text = '{0:.1f} {1:.1f} {2:.1f}'.format(self._mX, self._mY, self._mZ).replace('.',',')
+    #         animate = 'window-left-right'
+    #       else:  
+    #        color = 'purple'
+    #        animate = 'edit'
+    #        text = self.kbd.get()
 
-        else:   
-          if self.idleCounter%4==0:
-            color = 'purple'
-            text = self.state
-          elif self.idleCounter%4==1:  
-            color = X_ARROW_COLOR   
-            text = '{0:.1f}'.format(self._mX).replace('.',',')
-          elif self.idleCounter%4==2:  
-            color = Y_ARROW_COLOR   
-            text = '{0:.1f}'.format(self._mY).replace('.',',')
-          elif self.idleCounter%4==3:  
-            color = Z_ARROW_COLOR   
-            text = '{0:.1f}'.format(self._mZ).replace('.',',')
-        self.idleCounter +=1
-        self.neoText(text=text, color=color, animate = animate, virtual_width = virtual_width )                               
+    #     else:   
+    #       if self.idleCounter%4==0:
+    #         color = 'purple'
+    #         text = self.state
+    #       elif self.idleCounter%4==1:  
+    #         color = X_ARROW_COLOR   
+    #         text = '{0:.1f}'.format(self._mX).replace('.',',')
+    #       elif self.idleCounter%4==2:  
+    #         color = Y_ARROW_COLOR   
+    #         text = '{0:.1f}'.format(self._mY).replace('.',',')
+    #       elif self.idleCounter%4==3:  
+    #         color = Z_ARROW_COLOR   
+    #         text = '{0:.1f}'.format(self._mZ).replace('.',',')
+    #     self.idleCounter +=1
+    #     self.neoText(text=text, color=color, animate = animate, virtual_width = virtual_width )                               
 
 #todo new area Gcode line . Display there command and result, clear when new state parsed and state not in run and jog
 
 #and it for  manual comands      
+# hard beats every send ? or state changes        
         
