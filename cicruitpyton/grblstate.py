@@ -159,10 +159,20 @@ class GrblState(object):
             ('z', '     ', VFD_BLUE, 190, 95, 3),
             ('cmd', '     ', VFD_WHITE, 0, 170, 2),
             ('state', '     ', VFD_WHITE, 190, 130, 2),
-            ('icon', 'grbl', VFD_PURPLE, 60, 60, 4),
+            ('icon', 'grbl', VFD_PURPLE, 20, 20, 4),
             ('info', '    ', VFD_WHITE, 0, 200, 1)
         ]
         self.labels = {}  # dictionary of configured messages_labels
+        self.help = [
+           'ctrl-r\nreboot',
+           'ctrl-c\ncancel',
+           '^\nMPG',
+           '$\nunlock',
+           'esc\ncancel',
+           '!\nhold\\nresume',
+           '?\nquery'
+        ]
+        self.helpIdx=-1
 
 
 
@@ -208,17 +218,17 @@ class GrblState(object):
 
     def neoLabel(self,text,id='info',color=None):
         if color is not None and isinstance(color,str):
-           if color == 'red':
+           if color.lower() == 'red':
               color = VFD_RED
-           elif color == 'green':   
+           elif color.lower() == 'green':   
               color = VFD_GREEN
-           elif color == 'blue':   
+           elif color.lower() == 'blue':   
               color = VFD_BLUE
-           elif color == 'purple':   
+           elif color.lower() == 'purple':   
               color = VFD_PURPLE      
-           elif color == 'yellow':   
+           elif color.lower() == 'yellow':   
               color = VFD_YELLOW      
-           elif color == 'white':   
+           elif color.lower() == 'white':   
               color = VFD_WHITE      
 
         if id=='x':
@@ -253,7 +263,7 @@ class GrblState(object):
         elif id=='info':
           self.labels[id].text = self.neoSplitLine(text)
           if color is None:
-             self.labels[id].color=VFD_WHITE
+             self.labels[id].color=VFD_GREEN if self._mpg else VFD_WHITE
           else:   
              self.labels[id].color=color
 
@@ -262,6 +272,12 @@ class GrblState(object):
        self.neoLabel('GrblHAL v'+self.__version__,id='cmd',color=VFD_YELLOW)
        time.sleep(0.5)
        #self.neoLabel('       ',id='cmd',color=VFD_YELLOW)
+
+    def getHelp(self):
+       self.helpIdx+=1
+       self.helpIdx=self.helpIdx%len(self.help)
+       return self.help[self.helpIdx]
+       
 
     def neoIcon(self,text,color=None) :     
         self.neoLabel(text,id='icon',color=VFD_YELLOW if color is None else  color)
@@ -428,6 +444,8 @@ class GrblState(object):
           self.uart_grbl_mpg.write(bytearray(b'?\r\n')) # 
           time.sleep(1)
           microcontroller.reset()
+      elif command in ('help'):  
+          self.neoIcon(self.getHelp())
       elif command in ('^'):  
         #self.flashKbdLEDs(LED_ALL , BLINK_2) ##7 - 3 leds       # 1 - macro1
         self.neoLabel('$X',id='cmd')
@@ -535,8 +553,10 @@ class GrblState(object):
             else:
                 elem = token.split(':')
                 if len(elem)>1 and elem[0]=='mpg' and elem[1] is not None and (elem[1]=='1' or elem[1]=='0'):
+                    
                     self._mpg_prev=self._mpg
                     self._mpg=(elem[1]=='1')
+                    self.labels['info'].color=VFD_GREEN if self._mpg  else VFD_WHITE
                 elif  len(elem)>1 and elem[0]=='mpos' and elem[1] is not None:       
                     xyz = elem[1].split(',')
                     if len(xyz)==3:
@@ -558,7 +578,7 @@ class GrblState(object):
               if self.state.startswith('alarm'):
                   self._jog_arrow = ''
                   self.neoDisplayJog()
-                  self.neoIcon('^, shft+6')
+                  self.neoIcon('^\nshft+6')
                   self.neoLabel(self.state,id='state')
               elif self.state == 'run':    
                   self.neoLabel(self.state,id='state')

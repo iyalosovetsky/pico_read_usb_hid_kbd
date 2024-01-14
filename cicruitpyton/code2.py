@@ -152,7 +152,9 @@ sdDemo()
 
 pp=usb_host.Port(board.GP26, board.GP27)
 
-uartMPG = busio.UART(board.GP0, board.GP1, baudrate=115200)
+#uartMPG = busio.UART(board.GP0, board.GP1, baudrate=115200)
+UART_BUF_SIZE=196
+uartMPG = busio.UART(board.GP0, board.GP1, baudrate=115200, receiver_buffer_size=UART_BUF_SIZE)
 
 #usbDescDemo()
 
@@ -188,7 +190,7 @@ while True:
     mpgConsole=''
     ii_mpgCons=0     
     while ii_mpgCons<20:
-        mpgConsolePart=uartMPG.read(100)
+        mpgConsolePart=uartMPG.read(UART_BUF_SIZE)
         ii_mpgCons +=1
         if mpgConsolePart is not None:
           start_time_q = time.time()

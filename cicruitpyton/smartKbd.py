@@ -5,21 +5,22 @@
 KBD2GRBL ={
     'left':'-y',
     'right':'+y',
-    'pageUp':'-z',
-    'pageDown': '+z',
+    '[':'-z',
+    ']': '+z',
     'up':'+x', 
     'down':'-x', 
-    'f1': '-stepXY',
-    'f2': '+stepXY', 
-    'f3': '-stepZ',
-    'f4': '+stepZ',
-    'f5': '-feed',
-    'f6': '+feed',
+    # 'f1': '-stepXY',
+    # 'f2': '+stepXY', 
+    # 'f3': '-stepZ',
+    # 'f4': '+stepZ',
+    # 'f5': '-feed',
+    # 'f6': '+feed',
     'esc': 'cancel',
     'reset': 'reset',
     '~':'~', #Cycle Start/Resume from Feed Hold, Door or Program pause.
     '!':'!', #Feed Hold – Stop all motion.
     'pause':'!', 
+    'f1':'help', 
     '?':'?',
     '#':'#',
     'scrollLock':'#', # to toggle mpg MPG mode
@@ -137,6 +138,10 @@ class SmartKbd(object):
                 l_char ='tab'
                 l_chars.append(l_char)                
                 rxdata=rxdata[1:]
+            elif ord(rxdata[:1])==30:
+                l_char ='f1'
+                l_chars.append(l_char)                
+                rxdata=rxdata[1:]                
             else:
                 l_char =rxdata[:1]
                 l_chars.append(l_char)                
@@ -154,12 +159,12 @@ class SmartKbd(object):
             self.backspace()
             self.grblStateObj.neoShowEdit()
         elif charIn in ('~','!','?','#','^','@') or \
-                charIn =='left' or charIn =='right' or charIn =='pageUp' or charIn =='pageDown' or \
+                charIn =='left' or charIn =='right' or charIn =='[' or charIn ==']' or \
                 charIn =='up' or charIn =='down' or \
                 charIn =='f1' or charIn =='f2' or charIn =='f3' or charIn =='f4' or \
                 charIn =='f5' or charIn =='f6' or charIn =='f7' or charIn =='f8' or \
                 charIn =='f9' or charIn =='f10' or charIn =='f11' or charIn =='f12' or \
-                charIn =='esc' or charIn =='pause'  or charIn =='scrollLock' or charIn =='reset': 
+                charIn =='esc' or charIn =='pause'  or charIn =='scrollLock' or charIn =='reset' : 
                 self.grblStateObj.send2grbl(self.chars2Grbl(charIn))
                 self.clear()
         elif charIn.startswith('ctrl-f') and len(charIn)>6:
