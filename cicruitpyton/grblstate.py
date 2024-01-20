@@ -61,14 +61,7 @@
 # May be commanded at any time while in IDLE, RUN, or HOLD states. It is otherwise ignored.
 # This override directly changes the coolant modal state in the g-code parser. Grbl will continue to operate normally like it received and executed an M7 or M9 g-code command.
 # When $G g-code parser state is queried, the toggle override change will be reflected by an M7 enabled or disabled with an M9 or not appearing when M8 is present.
-C_STEP_MAX = 100.0
-C_STEP_MIN = 0.1
 
-C_STEP_Z_MAX = 20.0
-C_STEP_Z_MIN = 0.1
-
-C_FEED_MAX = 2000.0
-C_FEED_MIN = 200.0
 
 
 LED_SCROLLLOCK =  0x04
@@ -88,20 +81,32 @@ Z_ARROW_COLOR = 'blue'
 DEBUG= False
 
 VFD_PURPLE = 0x00FFD2
-VFD_GREEN = 0x00FF00
-VFD_RED = 0xFF0000
+VFD_GREEN = 0x30BF30
+VFD_RED = 0xCF3030
+VFD_BLUE = 0x4040CF
 VFD_YELLOW = 0xFFFF00
-
-
-VFD_BLUE = 0x0000FF
-VFD_WHITE = 0xFFFFFF
+VFD_YELLOW2 = 0xBFBF00
+VFD_WHITE = 0xCFCFCF
 
 VFD_ARROW_X = VFD_RED
 VFD_ARROW_Y = VFD_GREEN
 VFD_ARROW_Z = VFD_BLUE
-
-
 VFD_BG = 0x000505
+
+GRBL_QUERY_INTERVAL = 2
+
+C_STEP_MAX = 100.0
+C_STEP_MIN = 0.1
+
+C_STEP_Z_MAX = 20.0
+C_STEP_Z_MIN = 0.1
+
+C_FEED_MAX = 2000.0
+C_FEED_MIN = 200.0
+
+DXYZ_STEPS=[0.1,1.,10.,50.]
+FEED_STEPS=[10.,100.,200.,500.,1000.]
+
 
 
 import   time
@@ -119,15 +124,18 @@ class GrblState(object):
                   wX:float = 0.0,
                   wY:float = 0.0,
                   wZ:float = 0.0,
-                  dXY:float = 10.0,
-                  dZ:float = 1.0,
-                  feedrate =  1000.0
+                  dXY:float = DXYZ_STEPS[1],
+                  dZ:float = DXYZ_STEPS[1],
+                  feedrate =  FEED_STEPS[2]
                   ) :
         self.__version__ = '0.1'
         self._state = state
         self._state_prev = ''
         self._error = ''
         self._alarm = ''
+        self.query_now(3)
+        self._query4MPG_countDown = 2
+        self.time2query = time.time()
         self._mpg = mpg
         self._mpg_prev = ''
         self._mX = mX
@@ -140,18 +148,22 @@ class GrblState(object):
         self._dZ = dZ
         self._feedrate = feedrate
         self._state_is_changed = False
-        self.grbl_state = ''
+        self.grbl_state = '' # text in chevron
+        self.grbl_info = '' # text in bracket
         self._execProgress = 'ok'
         self.kbd = kbd
         self.uart_grbl_mpg = uart_grbl_mpg
         self.neo = neo
-        self.neo.setStateBottomRight([0,0,0]) # state on RB of display
         self._jog_arrow = ''
         self.idleCounter = 0
         self.editCmd = ''
         self.statetext = ''
         self.prev_statetext  = ''
         self.grblCmd2send=[]
+        self.grblCmdHist=[]
+        self.grblCmd2HistPos = 0
+        self.term_line_from=1
+        self.term_pos_from=0
         self._state_time_change = time.time()
         self._msg_conf = [
             ('x', '     ', VFD_GREEN, 190, 15, 3),
@@ -159,6 +171,7 @@ class GrblState(object):
             ('z', '     ', VFD_BLUE, 190, 95, 3),
             ('cmd', '     ', VFD_WHITE, 0, 170, 2),
             ('state', '     ', VFD_WHITE, 190, 130, 2),
+            ('term', '\nF1\nHelp', VFD_WHITE,10, 20, 2),
             ('icon', 'grbl', VFD_PURPLE, 20, 20, 4),
             ('info', '    ', VFD_WHITE, 0, 200, 1)
         ]
@@ -166,12 +179,25 @@ class GrblState(object):
         self.help = [
            'ctrl-r\nreboot',
            'ctrl-c\ncancel',
-           '^\nMPG',
-           '$\nunlock',
+           '#\nMPG',
+           '^\nunlock',
            'esc\ncancel',
-           '!\nhold\\nresume',
+           'f2\nDxy',
+           'f3\nDz',
+           'f4\nfeed',
+           'ctrl-\nup\nhistory',
+           'ctrl-\ndown\nhistory',
+           'ctrl-\nPgUp\nscreen',
+           'ctrl-\nPgDown\nscreen',
+           'ctrl-\nleft\nscreen',
+           'ctrl-\nright\nscreen',
+           'ctrl-\nhome\nscreen',
+
+
+           '~\nstart\\ \nresume',
+           '!\nfeed\\ \nhold',
            '?\nquery'
-        ]
+        ]     
         self.helpIdx=-1
 
 
@@ -188,23 +214,72 @@ class GrblState(object):
         self.hello()
         
 
+    def decTermLinePos(self):
+       if len(self.grbl_info)>0 and self.term_line_from>3:
+          self.term_line_from -= 3
+
+    def decTermPos(self):
+       if len(self.grbl_info)>0 and self.term_pos_from>4:
+          self.term_pos_from -= 5
 
 
 
+    def incTermLinePos(self):
+        if len(self.grbl_info)>0:
+          lines = self.grbl_info.count('\n')  
+          lines += 1
+          if self.term_line_from<lines:
+             self.term_line_from += 3
+
+    def incTermPos(self):
+        if len(self.grbl_info)>0:
+          if self.term_pos_from<50:
+             self.term_pos_from += 5
+
+    def homeTermPos(self):
+        if len(self.grbl_info)>0:
+           self.term_pos_from = 0
+           self.term_line_from = 1
+
+
+    def neoSplitTerm(self,text):
+      textF=''
+      ii=0
+      jj=0
+      for cc in text.split('\n'):
+         jj+=1
+         if jj<self.term_line_from:
+            continue
+            
+         ii+=1
+         if ii>5:
+            break
+         if len(textF)>100:
+             break
+         if ii>1:
+            textF +='\n'
+         textF +=cc.replace('[ALARMCODE:','').replace('[SETTING:','')[self.term_pos_from:25+self.term_pos_from]
+      return textF 
+    
+    
     def neoSplitLine(self,text):
       textF=''
       len1 =0
       for cc in text.split('|'):
+        if cc.startswith('Bf'):
+            continue
+        if cc.startswith('MPos'):
+            continue
+        if cc.startswith('WCO:0.000,0.000,0.000'):
+            continue
+        if cc.startswith('Ov:100,100,100'):
+            continue
+        if cc.startswith('FW:grblHAL'):
+            continue
         if textF=='':
             textF +=cc
             len1 += len(cc)
-            continue
-        if textF.startswith('Bf'):
-            continue
-        if textF.startswith('MPos'):
-            continue
-        if textF.startswith('WCO'):
-            continue    
+            continue            
         else:
             if len1+len(cc)>50:
                 textF +='\n'
@@ -243,7 +318,7 @@ class GrblState(object):
         elif id=='cmd':
           self.labels[id].text = text
           if color is None:
-             self.labels[id].color=VFD_PURPLE
+             self.labels[id].color=VFD_YELLOW2
         elif id=='state':
           self.labels[id].text = text
           if color is None and text.lower().startswith('alarm'):
@@ -255,7 +330,16 @@ class GrblState(object):
           else:   
              self.labels[id].color=color
         elif id=='icon':
+          self.labels['term'].hidden=(len(text.strip())>2)
           self.labels[id].text = text
+          if color is None:
+             self.labels[id].color=VFD_GREEN
+          else:   
+             self.labels[id].color=color
+
+        elif id=='term':
+        #   self.labels['term'].hidden= False
+          self.labels[id].text = self.neoSplitTerm(text)
           if color is None:
              self.labels[id].color=VFD_GREEN
           else:   
@@ -263,7 +347,7 @@ class GrblState(object):
         elif id=='info':
           self.labels[id].text = self.neoSplitLine(text)
           if color is None:
-             self.labels[id].color=VFD_GREEN if self._mpg else VFD_WHITE
+             self.labels[id].color=VFD_PURPLE if self._mpg  else VFD_WHITE
           else:   
              self.labels[id].color=color
 
@@ -271,7 +355,6 @@ class GrblState(object):
     def hello(self):
        self.neoLabel('GrblHAL v'+self.__version__,id='cmd',color=VFD_YELLOW)
        time.sleep(0.5)
-       #self.neoLabel('       ',id='cmd',color=VFD_YELLOW)
 
     def getHelp(self):
        self.helpIdx+=1
@@ -282,7 +365,9 @@ class GrblState(object):
     def neoIcon(self,text,color=None) :     
         self.neoLabel(text,id='icon',color=VFD_YELLOW if color is None else  color)
 
-
+    def neoTerm(self,text,color=None) :   
+        #print("neoTerm",text)  
+        self.neoLabel(text,id='term',color=VFD_WHITE if color is None else  color)
        
     def inc_feedrate(self):
       if self._feedrate+100.0 > C_FEED_MAX:
@@ -290,7 +375,7 @@ class GrblState(object):
       else:    
            self._feedrate +=100.0
       self._state_prev='feed'
-      print('g_feedrate now',self._feedrate)  
+      #print('g_feedrate now',self._feedrate)  
 
 
     def dec_feedrate(self):
@@ -299,7 +384,7 @@ class GrblState(object):
       else:    
            self._feedrate -=100.0
       self._state_prev='feed'     
-      print('g_feedrate now',self._feedrate)  
+      #print('g_feedrate now',self._feedrate)  
 
     def inc_stepXY(self):
       if self._dXY*10.0>C_STEP_MAX:
@@ -307,7 +392,7 @@ class GrblState(object):
       else:   
            self._dXY *=10.0
       self._state_prev='stepX'     
-      print('g_step+ now',self._dXY)         
+      #print('g_step+ now',self._dXY)         
 
     def dec_stepXY(self):
       if self._dXY*0.1<C_STEP_MIN:
@@ -315,7 +400,43 @@ class GrblState(object):
       else:   
            self._dXY *=0.1
       self._state_prev='stepX'          
-      print('g_step- now',self._dXY)         
+      #print('g_step- now',self._dXY)     
+
+    @staticmethod
+    def nextStepVals(val, lst):
+      idx=0
+      if val<lst[0] :
+         idx = 0
+      elif val>=lst[len(lst)-1] : 
+         idx = 0
+      else:
+          for ii, v in enumerate(lst):
+             if ii<len(lst)-1:
+                if val>=lst[ii] and val<lst[ii+1]:
+                   idx=ii
+          idx += 1
+      idx %= len(lst)
+      return lst[idx]
+
+
+      
+
+
+    def stepXY(self):
+      self._dXY=self.nextStepVals(self._dXY,DXYZ_STEPS)
+      self._state_prev='stepX'          
+      #print('g_step _dXY now',self._dXY)     
+
+    def stepZ(self):
+      self._dZ=self.nextStepVals(self._dZ,DXYZ_STEPS)
+      self._state_prev='stepZ'          
+      #print('g_step _dZ now',self._dZ)     
+
+    def set_feedrate(self):
+      self._feedrate=self.nextStepVals(self._feedrate, FEED_STEPS)
+      self._state_prev='feed'          
+      #print('g_feedrate now',self._feedrate) 
+
 
     def inc_stepZ(self):
       if self._dXY*10.0>C_STEP_Z_MAX:
@@ -323,7 +444,7 @@ class GrblState(object):
       else:   
            self._dZ *=10.0
       self._state_prev='stepZ'          
-      print('g_step_z now',self._dZ)         
+      #print('g_step_z now',self._dZ)         
 
     def dec_stepZ(self):
       if self._dZ*0.1<C_STEP_Z_MIN:
@@ -331,7 +452,7 @@ class GrblState(object):
       else:   
            self._dZ *=0.1
       self._state_prev='stepZ'          
-      print('g_step_z now',self._dZ)  
+      #print('g_step_z now',self._dZ)  
 
     def set_jog_arrow(self, arrow:str):
       #print('new set_jog_arrow ',arrow)
@@ -342,9 +463,13 @@ class GrblState(object):
     def mpgCommand(self, command:str):
       if DEBUG or (command is not None and command!='' and not command.startswith('?')) :
         print("mpgCommand:",command)
+
       if not( command.startswith('?') or command.startswith('!') or command.startswith('$') or command.startswith('$')):
         self._execProgress='do'  
       self.uart_grbl_mpg.write(command.encode())
+      self.query_now()
+      if not command.startswith('?'):
+        self.idleCounter = 0
 
     #jog $J=G91 X0 Y-5 F600
     #$J=G91 X1 F100000
@@ -365,20 +490,39 @@ class GrblState(object):
       if cmd !='':
           self.neoLabel(cmd,id='cmd')  
           self.mpgCommand(cmd+'\r\n')
+          self.query_now()
           self.neoDisplayJog() 
+    
+    def toggleMPG(self):
+        self.neoLabel("#",id='cmd')
+        self.uart_grbl_mpg.write(bytearray(b'\x8b\r\n'))
+        self.query_now()
 
+    def query4MPG(self):
+        if self._query4MPG_countDown>0:
+           self._query4MPG_countDown -= 1
+           self.toggleMPG()
+
+    
 
 
     def send2grblOne(self,command:str):
-      if DEBUG or (command is not None and command!='' and not command.startswith('?')) :
-        print('send2grblOne:',command,len(command))
+      #if DEBUG or (command is not None and command!='' and not command.startswith('?')) :
+      #  print('send2grblOne:',command,len(command))
       if command in ('~','!','?'):
         #self.flashKbdLEDs(LED_ALL , BLINK_2) ##7 - 3 leds       # 1 - macro1
         self.mpgCommand(command)
         if command !='?':
+          self.idleCounter = 0
           self.neoLabel(command,id='cmd')
-        else:  
-           self.neoLabel(self.editCmd if self.editCmd!='' else '       ',id='cmd')
+        else:
+          if self.editCmd!='':
+            self.grblCmd2send=[]
+          else: 
+             self.idleCounter+=1
+             if  self.idleCounter>10:
+                self.idleCounter = 0
+                self.neoLabel('',id='cmd')
       elif command=='-y':
           self.grblJog(y=-self.step)
       elif  command=='+y':
@@ -421,18 +565,44 @@ class GrblState(object):
             self.neoIcon('dZ {0:.1f}'.format(self._dZ).replace('.',','))
           else:  
              self.neoIcon('dZ {0:.0f}'.format(self._dZ))
+      elif command=='stepXY' :    
+          self.stepXY()
+          self.neoIcon('dXY\n{0:.1f}'.format(self._dXY))
+      elif command=='stepZ' :    
+          self.stepZ()
+          self.neoIcon('dZ\n{0:.1f}'.format(self._dZ))
+      elif command=='feed' : 
+          self.set_feedrate()
+          self.neoIcon('feed\n{0:.0f}'.format(self._feedrate))
+      elif command=='termLineUp' : 
+          self.decTermLinePos()
+          if len(self.grbl_info)>0:
+            self.neoTerm(self.grbl_info)
+      elif command=='termLineDown' : 
+          self.incTermLinePos()
+          if len(self.grbl_info)>0:
+            self.neoTerm(self.grbl_info) 
+      elif command=='termLineLeft' : 
+          self.decTermPos()
+          if len(self.grbl_info)>0:
+            self.neoTerm(self.grbl_info)
+      elif command=='termLineRight' : 
+          self.incTermPos()
+          if len(self.grbl_info)>0:
+            self.neoTerm(self.grbl_info)           
+      elif command=='termHome' : 
+          self.homeTermPos()
+          if len(self.grbl_info)>0:
+            self.neoTerm(self.grbl_info)   
       elif command in ('#'):  
-        #self.flashKbdLEDs(LED_SCROLLLOCK , BLINK_5) ##2 - leds ???       # 2 - macro1 10/2 blink
-        self.neoLabel(command,id='cmd')
-        self.uart_grbl_mpg.write(bytearray(b'\x8b\r\n'))
+        self.toggleMPG()
       elif command in ('cancel'):  
         # if self.state == 'run' or self.state == 'jog':
           #self.flashKbdLEDs(LED_SCROLLLOCK , BLINK_5) ##2 - leds ???       # 2 - macro1 10/2 blink
           self.uart_grbl_mpg.write(bytearray(b'\x85\r\n')) #Jog Cancel
           self.uart_grbl_mpg.write(bytearray(b'\x18\r\n')) # cancel ascii ctrl-x
           self.neoLabel(command,id='cmd')
-          time.sleep(1)
-          self.uart_grbl_mpg.write(bytearray(b'?\r\n')) # 
+          self.query_now(1)
         # else:
           #self.flashKbdLEDs(LED_ALL , BLINK_2) ##7 - 3 leds       # 1 - macro1
           # pass 
@@ -440,9 +610,7 @@ class GrblState(object):
           self.uart_grbl_mpg.write(bytearray(b'\x85\r\n')) #Jog Cancel
           self.uart_grbl_mpg.write(bytearray(b'\x18\r\n')) # cancel ascii ctrl-x
           self.neoLabel(command,id='cmd')
-          time.sleep(1)
-          self.uart_grbl_mpg.write(bytearray(b'?\r\n')) # 
-          time.sleep(1)
+          self.query_now(2)
           microcontroller.reset()
       elif command in ('help'):  
           self.neoIcon(self.getHelp())
@@ -450,19 +618,33 @@ class GrblState(object):
         #self.flashKbdLEDs(LED_ALL , BLINK_2) ##7 - 3 leds       # 1 - macro1
         self.neoLabel('$X',id='cmd')
         self.uart_grbl_mpg.write('$X'.encode()+b'\r\n')
+        self.query_now()
       else:
         if command.strip()!='':
-          # self.neoInfo(command[:10],virtual_width = 128)
-          self.neoLabel(command,id='cmd')
-          self.uart_grbl_mpg.write(command.encode()+b'\r\n')
-          if not(command.startswith('?') or command.startswith('!') or command.startswith('$') or command.startswith('$')):
-            self._execProgress='do'
+            # self.neoInfo(command[:10],virtual_width = 128)
+            self.neoLabel(command,id='cmd')
+            self.uart_grbl_mpg.write(command.encode()+b'\r\n')
+            if not(command.startswith('?') or command.startswith('!') or command.startswith('$') or command.startswith('$') or command.startswith('#')):
+                self._execProgress='do'
+
+            cnt=0
+            for cc in self.grblCmdHist:
+                if cc==self.editCmd:
+                    cnt=1
+                    break
+            if cnt<1:   
+                if len(self.grblCmdHist)>20:
+                    self.grblCmdHist.pop(-1)
+                self.grblCmdHist.append(command)
+                self.grblCmd2HistPos  = len(self.grblCmdHist)-1
+            self.neoLabel(self.editCmd,id='cmd')
+  
 
     def send2grbl(self,command:str):        
-      if DEBUG or (command is not None and command!='' and not command.startswith('?')) :
-        self.grblCmd2send.append(command)
-        print('send2grbl:',command,' queueLen=',len(self.grblCmd2send), self._execProgress)
-        if self._execProgress!='do':
+      #if DEBUG or (command is not None and command!='' and not command.startswith('?')) :
+      #  print('send2grbl:',command,' queueLen=',len(self.grblCmd2send), self._execProgress)
+      self.grblCmd2send.append(command)
+      if self._execProgress!='do':
           self.popCmd2grbl()
 
     def popCmd2grbl(self):
@@ -477,11 +659,33 @@ class GrblState(object):
         else:
           l_cmd=self.grblCmd2send.pop(0)
           self.send2grblOne(l_cmd)
-            
+
+    def getHist(self, diff=1):
+          if len(self.grblCmdHist)>0:
+             self.grblCmd2HistPos+=diff
+             self.grblCmd2HistPos%=len(self.grblCmdHist)
+             return self.grblCmdHist[self.grblCmd2HistPos]
+          else:
+             print('history is empty')              
+             return ''
 
     @property
     def feedrate(self):
         return self._feedrate  
+    
+    
+    def query_now(self, interval=0.2):
+        self._need_query = True
+       
+    @property
+    def need_query(self):
+        # l_nq = self._need_query or time.time()-self.start_time_q>GRBL_QUERY_INTERVAL
+        l_nq = self._need_query or time.time()>self.time2query
+        if l_nq:
+          self.time2query = time.time()+GRBL_QUERY_INTERVAL
+        self._need_query = False
+        return l_nq
+    
 
     @property
     def step(self):
@@ -511,14 +715,37 @@ class GrblState(object):
     #MPG -> <Idle|MPos:30.000,0.000,0.000|Bf:35,1023|FS:0,0,0|Pn:HS|WCO:0.000,0.000,0.000|WCS:G54|A:|Sc:|MPG:1|H:0|T:0|TLR:0|Sl:0.0|FW:grblHAL>
     def parseState(self,grblState:str):
         if grblState is None:
-          return 
-        if len(grblState)>5:
-          i=5
-          while i>0 and grblState.endswith('ok'):
-            i-=1
-            grblState=grblState[:-2].strip()
+          return
+        grblState=grblState.strip()
+           
+        
 
-        if not ((grblState.startswith('<') and grblState.endswith('>'))  or grblState.startswith('error:')  or grblState=='ok'):
+
+        l_cntNewL=grblState.count('\n')
+        isInfo = False
+        p_msgFrom=grblState.find('[')
+        p_msgTo=grblState.find(']')
+        if l_cntNewL>0:
+          if grblState.count('ok')>0:
+              self._execProgress='ok'
+              if ((p_msgFrom<p_msgTo and p_msgTo>1 and p_msgFrom>0) or grblState.startswith('$') ) :
+                  isInfo = True
+          
+        if isInfo:
+           if p_msgFrom>0 and p_msgTo>0:
+              self.grbl_info=grblState[p_msgFrom:p_msgTo+1]
+           else:   
+              self.grbl_info=grblState
+              
+           
+           self.term_line_from=1
+
+        grblState=grblState.replace('ok','').replace('\n','').replace('\r','')
+  
+        if not ((grblState.startswith('<') and grblState.endswith('>'))  or grblState.startswith('error:')  or grblState=='ok'
+                or (grblState.startswith('[') and grblState.endswith(']'))
+                # or (grblState.startswith('$'))
+                ):
           return         
         if grblState.startswith('error:'):
           self._execProgress='error'
@@ -534,6 +761,16 @@ class GrblState(object):
           self._state_prev = self._state
           self._state_time_change = time.time()
           return 
+        elif grblState.startswith('[') and grblState.endswith(']'):
+            self.grbl_state = grblState
+            if grblState.count('Unlocked')>0:
+              prv = self._state_prev
+              self._state_prev = self._state
+              self._state = 'unlocked'
+              self._state_is_changed = (prv is None or  prv != self._state)
+              self._execProgress='done'
+              
+
  
         
         self.grbl_state = grblState
@@ -549,14 +786,12 @@ class GrblState(object):
               if self._execProgress=='do' and (self._state.startswith('idle') or self._state.startswith('alarm')) :
                  self._execProgress='done'
               self._state_time_change = time.time()
-              
             else:
                 elem = token.split(':')
                 if len(elem)>1 and elem[0]=='mpg' and elem[1] is not None and (elem[1]=='1' or elem[1]=='0'):
-                    
                     self._mpg_prev=self._mpg
                     self._mpg=(elem[1]=='1')
-                    self.labels['info'].color=VFD_GREEN if self._mpg  else VFD_WHITE
+                    self.labels['info'].color=VFD_PURPLE if self._mpg  else VFD_WHITE
                 elif  len(elem)>1 and elem[0]=='mpos' and elem[1] is not None:       
                     xyz = elem[1].split(',')
                     if len(xyz)==3:
@@ -567,6 +802,10 @@ class GrblState(object):
       self.parseState(grblState.strip())
       # print("MPG ->",grblState,' \n - >> prev ',self.state_prev, self.mpg_prev,' now=>',self.state, self.mpg)
       self.neoLabel(self.grbl_state,id='info')
+      
+      if len(self.grbl_info)>0:
+         self.neoTerm(self.grbl_info)
+         
       self.neoLabel('',id='x')
       self.neoLabel('',id='y')
       self.neoLabel('',id='z')
@@ -578,13 +817,17 @@ class GrblState(object):
               if self.state.startswith('alarm'):
                   self._jog_arrow = ''
                   self.neoDisplayJog()
-                  self.neoIcon('^\nshft+6')
+                  self.neoIcon('\n  ^\nshft+6')
                   self.neoLabel(self.state,id='state')
               elif self.state == 'run':    
                   self.neoLabel(self.state,id='state')
+                  self.neoIcon('\n  Run')
               elif self.state == 'jog':    
                   self.neoLabel(self.state,id='state')
                   self.neoDisplayJog()
+                  self.neoIcon('\n  Jog')
+              elif self.state=='unlocked':
+                  self.neoLabel(self.state,id='state')
               elif self.state=='hold:1':
                   self.neoLabel(self.state,id='state')
               elif self.state=='hold:0':
@@ -592,61 +835,21 @@ class GrblState(object):
                   # self.neoInfo(self.state)  
                   self.neoLabel(self.state,id='state')
               elif self.state.startswith('error'): 
-                  self._jog_arrow = '' 
+                  self._jog_arrow = ''
+                  self.neoDisplayJog() 
                   # self.neoError('err')  
                   #self.flashKbdLEDs(LED_CAPSLOCK , BLINK_5) 
                   self.neoLabel(self.state,id='state')
               elif self.state == 'idle' :
-                  self._jog_arrow = ''    
+                  self._jog_arrow = ''
+                  self.neoDisplayJog()    
                   #self.flashKbdLEDs(LED_ALL , NOBLINK) 
                   # self.neoIdle()
                   self.neoLabel(self.state,id='state')
     
 
 
-    def neoText(self,text:str, color = 'PURPLE', animate:str = 'None', virtual_width:int = 64  ) :     
 
-      cl0 = ['PURPLE']
-      cl =[]
-
-      if type(color) is str:
-         cl0 = [color]
-      elif type(color) in (tuple, list):
-         cl0 = color   
-      else:
-         cl0 = ['PURPLE']
-      for cli  in range(len(cl0)):
-         if len(cl)<cli+1:
-            cl.append(cl0[cli])
-         else:
-            cl[cli] = cl0[cli] 
-
-         
-            
-            
-      self.prev_statetext = self.statetext
-      self.statetext = text
-      self.neo.clear()
-      self.neo.text(text, 0, 0,cl,no_clear_wnd_pos=(self.prev_statetext == self.statetext) )
-      #self.neo.animate(p_type=animate, p_delay=0.3)
-      arrState=self.neo.rbState
-      if self._mpg:
-         arrState[0]='GREEN'
-      else:
-         arrState[0]='PURPLE'
-      if  self.state.startswith('alarm'):
-         arrState[2]='RED'
-      elif self.state.startswith('hold'):
-         arrState[2]='YELLOW'   
-      else:
-         arrState[2]='BLACK'   
-      self.neo.setStateBottomRight(arrState)
-
-         
-       
-
-    # def neoError(self,text:str, color:str = 'red', animate:str = 'window-left-right' ) :     
-    #     self.neoText(text=text, color=color, animate = animate )     
 
     def neoDisplayJog(self) :     
         color=X_ARROW_COLOR
@@ -654,16 +857,15 @@ class GrblState(object):
            color=Y_ARROW_COLOR
         elif self._jog_arrow[-1:]=='z':  
            color=Z_ARROW_COLOR
-
-        # self.neoText(text=text, color=color, animate = animate, virtual_width = 16 )  
         if self._jog_arrow=='':
            self.neoIcon(text='   ')   
         else:
-          self.neoIcon(text='>>>' if self._jog_arrow.startswith('+') else '<<<',color=color)   
+          self.neoIcon(text=('>>>' if self._jog_arrow.startswith('+') else '<<<') +
+                       '\n'+('d={0:.1f}'.format(self._dZ) if self._jog_arrow.endswith('z') else 'd={0:.1f}'.format(self._dXY))+
+                       '\nf={0:.0f}'.format(self._feedrate)
+                       ,color=color)   
 
 
-    # def neoInfo(self,text:str, color:str = 'purple', animate:str = 'window-left-right', virtual_width = 64 ) :     
-    #     self.neoText(text=text, color=color, animate = animate, virtual_width = virtual_width )  
 
     def setEdit(self, text):
        self.editCmd=text
@@ -674,38 +876,383 @@ class GrblState(object):
       self.neoLabel(text=self.editCmd,id='cmd')
                                 
 
-    # def neoIdle(self, virtual_width = 64 ) :     
-    #     color = 'purple'
-    #     text = self.state
-    #     animate = 'window-left-right'
-    #     if self.kbd.get()!='':
-    #       if self.idleCounter>10 and self.idleCounter%10<=7:  
-    #         color = [X_ARROW_COLOR, Y_ARROW_COLOR , Z_ARROW_COLOR]
-    #         text = '{0:.1f} {1:.1f} {2:.1f}'.format(self._mX, self._mY, self._mZ).replace('.',',')
-    #         animate = 'window-left-right'
-    #       else:  
-    #        color = 'purple'
-    #        animate = 'edit'
-    #        text = self.kbd.get()
+KBD2GRBL ={
+    'left':'-y',
+    'right':'+y',
+    'pageUp':'-z',
+    'pageDown': '+z',
+    'up':'+x', 
+    'down':'-x', 
+    # 'f1': '-stepXY',
+    # '<': 'stepXY', 
+    # '>': 'stepZ',
+    # ';': 'feed',
+    # 'f3': '-stepZ',
+    # 'f5': '-feed',
+    'esc': 'cancel',
+    'reset': 'reset',
+    '~':'~', #Cycle Start/Resume from Feed Hold, Door or Program pause.
+    '!':'!', #Feed Hold – Stop all motion.
+    'pause':'!', 
+    'f1':'help', 
+    'f2':'stepXY', 
+    'f3':'stepZ', 
+    'f4':'feed',
+    'ctrl-left':'termLineLeft',
+    'ctrl-right':'termLineRight',
+    'ctrl-pageUp':'termLineUp',
+    'ctrl-pageDown':'termLineDown',
+    'ctrl-up':'histLineUp',
+    'ctrl-down':'histLineDown',
+    'ctrl-home':'termHome',
+    
+    '?':'?',
+    '#':'#',
+    'scrollLock':'#', # to toggle mpg MPG mode
+    '^':'^',
+    'f12':'^', # sends $X to grbl to unlock CNC from alarm mode
+    '@':'@'
 
-    #     else:   
-    #       if self.idleCounter%4==0:
-    #         color = 'purple'
-    #         text = self.state
-    #       elif self.idleCounter%4==1:  
-    #         color = X_ARROW_COLOR   
-    #         text = '{0:.1f}'.format(self._mX).replace('.',',')
-    #       elif self.idleCounter%4==2:  
-    #         color = Y_ARROW_COLOR   
-    #         text = '{0:.1f}'.format(self._mY).replace('.',',')
-    #       elif self.idleCounter%4==3:  
-    #         color = Z_ARROW_COLOR   
-    #         text = '{0:.1f}'.format(self._mZ).replace('.',',')
-    #     self.idleCounter +=1
-    #     self.neoText(text=text, color=color, animate = animate, virtual_width = virtual_width )                               
+}
 
-#todo new area Gcode line . Display there command and result, clear when new state parsed and state not in run and jog
-
-#and it for  manual comands      
-# hard beats every send ? or state changes        
+class SmartKbd(object):
+    def __init__(self):
+        self.cmd=bytearray(  [0x01,0x01,0xFE,0x02])
         
+        self.grblCommand=''
+        
+        self.grblPrevCommand = ''
+
+        self.grblMacro={}
+        self.grblStateObj=  None
+        
+        
+
+    def objGrblStateSetter(self,grblStateObj):
+        self.grblStateObj = grblStateObj
+        self.grblStateObj.setEdit(self.grblCommand)
+
+ 
+    @staticmethod
+    def chars2Grbl(charIn:str): 
+        return KBD2GRBL.get(charIn,charIn)
+    
+    def backspace(self):
+        self.grblCommand =self.grblCommand[0:-1]
+        self.grblStateObj.setEdit(self.grblCommand)
+
+    
+    def put_char(self, char):
+        self.grblCommand +=char
+        self.grblStateObj.setEdit(self.grblCommand)
+
+    def space(self):
+        self.put_char(' ')  
+        self.grblStateObj.setEdit(self.grblCommand)
+
+
+    def clear(self):
+        self.grblPrevCommand=self.grblCommand
+        self.grblCommand = ''
+        self.grblStateObj.setEdit(self.grblCommand)  
+
+    def set_macro(self, key:str):
+        self.grblMacro[key]=self.grblCommand
+        self.clear()
+
+        
+    def get_macro(self, key:str):
+        self.clear()
+        self.grblCommand=self.grblMacro.get(key,'')
+        self.grblStateObj.setEdit(self.grblCommand)
+        return self.grblCommand
+        
+    def get(self):
+        return self.grblCommand 
+
+    def getc(self):
+        self.clear()
+        return self.grblPrevCommand
+    
+    @staticmethod
+    def splitEsc(rxdata:str):
+        l_chars=[]
+        i=20
+        l_chars=[]
+        #https://learn.microsoft.com/ru-ru/windows/console/console-virtual-terminal-sequences
+        while i>0 and len(rxdata)>0:
+            i-=1
+            if rxdata.startswith(chr(27)+"[D"):
+                l_char = 'left'
+                l_chars.append(l_char)
+                rxdata=rxdata[3:]
+            elif rxdata.startswith(chr(27)+"[C"):  
+                l_char = 'right'
+                l_chars.append(l_char)
+                rxdata=rxdata[3:]
+            elif rxdata.startswith(chr(27)+"[A"):  
+                l_char = 'up'    
+                l_chars.append(l_char)
+                rxdata=rxdata[3:]
+            elif rxdata.startswith(chr(27)+"[B"):  
+                l_char = 'down'
+                l_chars.append(l_char)        
+                rxdata=rxdata[3:]
+            elif rxdata.startswith(chr(27)+"[H"):  
+                l_char = 'home'
+                l_chars.append(l_char)        
+                rxdata=rxdata[3:]
+            elif rxdata.startswith(chr(27)+"[F"):  
+                l_char = 'end'
+                l_chars.append(l_char)        
+                rxdata=rxdata[3:]
+            elif rxdata.startswith(chr(27)+"[5~"):  
+                l_char = 'pageUp'
+                l_chars.append(l_char)        
+                rxdata=rxdata[4:]
+            elif rxdata.startswith(chr(27)+"[6~"):  
+                l_char = 'pageDown'
+                l_chars.append(l_char)        
+                rxdata=rxdata[4:]
+            elif rxdata.startswith(chr(27)+"[2~"):  
+                l_char = 'insert'
+                l_chars.append(l_char)        
+                rxdata=rxdata[4:]
+            elif rxdata.startswith(chr(27)+"[3~"):  
+                l_char = 'delete'
+                l_chars.append(l_char)        
+                rxdata=rxdata[4:]
+            elif rxdata.startswith(chr(27)+"OP"):  
+                l_char = 'f1'
+                l_chars.append(l_char)        
+                rxdata=rxdata[3:]
+            elif rxdata.startswith(chr(27)+"OQ"):  
+                l_char = 'f2'
+                l_chars.append(l_char)        
+                rxdata=rxdata[3:]
+            elif rxdata.startswith(chr(27)+"OR"):  
+                l_char = 'f3'
+                l_chars.append(l_char)        
+                rxdata=rxdata[3:]
+            elif rxdata.startswith(chr(27)+"OS"):  
+                l_char = 'f4'
+                l_chars.append(l_char)        
+                rxdata=rxdata[3:]
+            elif rxdata.startswith(chr(27)+"[15~"):  
+                l_char = 'f5'
+                l_chars.append(l_char)        
+                rxdata=rxdata[5:]
+            elif rxdata.startswith(chr(27)+"[17~"):  
+                l_char = 'f6'
+                l_chars.append(l_char)        
+                rxdata=rxdata[5:]
+            elif rxdata.startswith(chr(27)+"[18~"):  
+                l_char = 'f7'
+                l_chars.append(l_char)        
+                rxdata=rxdata[5:]
+            elif rxdata.startswith(chr(27)+"[19~"):  
+                l_char = 'f8'
+                l_chars.append(l_char)        
+                rxdata=rxdata[5:]
+            elif rxdata.startswith(chr(27)+"[20~"):  
+                l_char = 'f9'
+                l_chars.append(l_char)        
+                rxdata=rxdata[5:]
+            elif rxdata.startswith(chr(27)+"[21~"):  
+                l_char = 'f10'
+                l_chars.append(l_char)        
+                rxdata=rxdata[5:]
+            elif rxdata.startswith(chr(27)+"[23~"):  
+                l_char = 'f11'
+                l_chars.append(l_char)        
+                rxdata=rxdata[5:]
+            elif rxdata.startswith(chr(27)+"[24~"):  
+                l_char = 'f12'
+                l_chars.append(l_char)        
+                rxdata=rxdata[5:]
+
+
+
+            elif rxdata.startswith(chr(27)+"[1;5A"):  
+                l_char = 'ctrl-up'    
+                l_chars.append(l_char)
+                rxdata=rxdata[6:]
+            elif rxdata.startswith(chr(27)+"[1;5B"):  
+                l_char = 'ctrl-down'
+                l_chars.append(l_char)        
+                rxdata=rxdata[6:]
+            elif rxdata.startswith(chr(27)+"[1;5C"):
+                l_char = 'ctrl-right'
+                l_chars.append(l_char)
+                rxdata=rxdata[6:]
+            elif rxdata.startswith(chr(27)+"[1;5D"):  
+                l_char = 'ctrl-left'
+                l_chars.append(l_char)
+                rxdata=rxdata[6:]
+            elif rxdata.startswith(chr(27)+"[6;5~"):  
+                l_char = 'ctrl-pageDown'
+                l_chars.append(l_char)
+                rxdata=rxdata[6:]
+            elif rxdata.startswith(chr(27)+"[5;5~"):  
+                l_char = 'ctrl-pageUp'
+                l_chars.append(l_char)
+                rxdata=rxdata[6:]
+            elif rxdata.startswith(chr(27)+"[1;5H"):  
+                l_char = 'ctrl-home'
+                l_chars.append(l_char)
+                rxdata=rxdata[6:]
+            elif rxdata.startswith(chr(27)+"[1;5F"):  
+                l_char = 'ctrl-end'
+                l_chars.append(l_char)
+                rxdata=rxdata[6:]
+            elif rxdata.startswith(chr(27)+"[2;5~"):  
+                l_char = 'ctrl-insert'
+                l_chars.append(l_char)
+                rxdata=rxdata[6:]
+            elif rxdata.startswith(chr(27)+"[3;5~"):  
+                l_char = 'ctrl-delete'
+                l_chars.append(l_char)
+                rxdata=rxdata[6:]
+            elif rxdata.startswith(chr(27)+"[1;5P"):  
+                l_char = 'ctrl-f1'
+                l_chars.append(l_char)
+                rxdata=rxdata[6:]
+            elif rxdata.startswith(chr(27)+"[1;5Q"):  
+                l_char = 'ctrl-f2'
+                l_chars.append(l_char)
+                rxdata=rxdata[6:]
+            elif rxdata.startswith(chr(27)+"[1;5R"):  
+                l_char = 'ctrl-f3'
+                l_chars.append(l_char)
+                rxdata=rxdata[6:]
+            elif rxdata.startswith(chr(27)+"[1;5S"):  
+                l_char = 'ctrl-f4'
+                l_chars.append(l_char)
+                rxdata=rxdata[6:]
+            elif rxdata.startswith(chr(27)+"[15;5~"):  
+                l_char = 'ctrl-f5'
+                l_chars.append(l_char)
+                rxdata=rxdata[7:]
+            elif rxdata.startswith(chr(27)+"[17;5~"):  
+                l_char = 'ctrl-f6'
+                l_chars.append(l_char)
+                rxdata=rxdata[7:]
+            elif rxdata.startswith(chr(27)+"[18;5~"):  
+                l_char = 'ctrl-f7'
+                l_chars.append(l_char)
+                rxdata=rxdata[7:]
+            elif rxdata.startswith(chr(27)+"[19;5~"):  
+                l_char = 'ctrl-f8'
+                l_chars.append(l_char)
+                rxdata=rxdata[7:]
+            elif rxdata.startswith(chr(27)+"[20;5~"):  
+                l_char = 'ctrl-f9'
+                l_chars.append(l_char)
+                rxdata=rxdata[7:]
+            elif rxdata.startswith(chr(27)+"[21;5~"):  
+                l_char = 'ctrl-f10'
+                l_chars.append(l_char)
+                rxdata=rxdata[7:]
+            elif rxdata.startswith(chr(27)+"[23;5~"):  
+                l_char = 'ctrl-f11'
+                l_chars.append(l_char)
+                rxdata=rxdata[7:]
+            elif rxdata.startswith(chr(27)+"[24;5~"):  
+                l_char = 'ctrl-f12'
+                l_chars.append(l_char)
+                rxdata=rxdata[7:]
+            elif rxdata.startswith(chr(27)+chr(91)):
+                l_char = 'ukn'
+                l_chars.append(l_char)        
+                rxdata=rxdata[3:]
+            elif rxdata.startswith(chr(27)):
+                l_char = 'esc'
+                l_chars.append(l_char)                
+                rxdata=rxdata[1:]
+            elif rxdata.startswith(chr(18)):
+                l_char = 'reset'
+                l_chars.append(l_char)                
+                rxdata=rxdata[1:]
+            elif ord(rxdata[:1])==10:
+                l_char ='enter'
+                l_chars.append(l_char)                
+                rxdata=rxdata[1:]
+            elif ord(rxdata[:1])==8:
+                l_char ='backspace'
+                l_chars.append(l_char)                
+                rxdata=rxdata[1:]
+            elif ord(rxdata[:1])==9:
+                l_char ='tab'
+                l_chars.append(l_char)                
+                rxdata=rxdata[1:]
+            elif ord(rxdata[:1])==30:
+                l_char ='pause'
+                l_chars.append(l_char)                
+                rxdata=rxdata[1:]                
+            else:
+                l_char =rxdata[:1]
+                l_chars.append(l_char)                
+                rxdata=rxdata[1:]
+        return l_chars
+    
+
+    def proceedOneChar(self,charIn:str): 
+        if charIn =='enter' :
+            self.grblStateObj.send2grbl(self.getc())
+        elif charIn == ' ' or charIn == 'space' or charIn =='shift space' or charIn =='tab':
+            self.put_char(' ')
+            self.grblStateObj.neoShowEdit()
+        elif charIn == 'backspace' or charIn =='shift backspace'  :
+            self.backspace()
+            self.grblStateObj.neoShowEdit()
+        elif charIn in ('~','!','?','#','^','@') or \
+                charIn =='left' or charIn =='right' or charIn =='pageUp' or charIn == 'pageDown' or \
+                charIn =='up' or charIn =='down' or \
+                charIn =='f1' or charIn =='f2' or charIn =='f3' or charIn =='f4' or \
+                charIn =='f5' or charIn =='f6' or charIn =='f7' or charIn =='f8' or \
+                charIn =='f9' or charIn =='f10' or charIn =='f11' or charIn =='f12' or \
+                charIn =='ctrl-left' or charIn =='ctrl-right'  or charIn =='ctrl-pageDown' or charIn =='ctrl-pageUp'   or charIn =='ctrl-home' or \
+                charIn =='esc' or charIn =='pause'  or charIn =='scrollLock' or charIn =='reset' : 
+                self.grblStateObj.send2grbl(self.chars2Grbl(charIn))
+                self.clear()
+        elif charIn.startswith('ctrl-f') and len(charIn)>6:
+            self.grblStateObj.send2grbl(self.get_macro(charIn[5:]))
+            self.clear()
+        elif charIn.startswith('alt-f') and len(charIn)>5:
+            self.set_macro(charIn[4:])
+            self.grblStateObj.neoShowEdit()
+        elif charIn =='ctrl-up' or charIn == 'ctrl-down':
+            hist=self.grblStateObj.getHist(diff=1 if charIn =='ctrl-down' else -1)
+            if hist !='':
+                self.clear()
+                self.put_char(hist)
+                self.grblStateObj.neoShowEdit()
+        elif not(charIn.startswith('alt-') or charIn.startswith('shift-') or charIn.startswith('ctrl-') or charIn.startswith('opt-')
+                    or charIn.startswith('ralt-') or charIn.startswith('rshift-') or charIn.startswith('rctrl-') or charIn.startswith('ropt-')):    
+            self.put_char(charIn) 
+            self.grblStateObj.neoShowEdit()
+
+
+
+    def proceedChars(self,rxdata:str, DEBUG:bool = False  ): 
+        #if DEBUG:
+        #        print('proceedChars: rxdata=',rxdata)
+
+        if self.grblStateObj is None:
+            print('proceedChars: No grblStateObj FOUND!!!')
+            return
+        
+        l_chars=self.splitEsc(rxdata)
+        for l_char in (l_chars):
+            #if DEBUG:
+            #   print('proceedChars: l_char=',l_char)
+            self.proceedOneChar(l_char)
+
+
+#todo 
+# hard beats every send ? or state changes        
+# rapid commands
+#1681920
+#1681408
+
+

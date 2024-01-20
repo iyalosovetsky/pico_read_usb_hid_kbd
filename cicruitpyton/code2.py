@@ -18,8 +18,7 @@ import digitalio
 import busio
 import storage
 
-from grblstate import GrblState
-from smartKbd import SmartKbd
+from grblstate import GrblState, SmartKbd
 from waveST7789 import WaveST7789
 neo = WaveST7789()
 
@@ -30,130 +29,15 @@ sd_cs.value = True
 
  
 sdcard = SDCard(neo.spi, sd_cs,1000000)
-
-
 vfs = storage.VfsFat(sdcard)
-
 storage.mount(vfs, "/sd")
 
 
-def sdDemo():
-    for ff in os.listdir('/sd'):
-        if True or ff.startswith("test") and ff.endswith(".txt"):
-            try:
-                os.unlink('/sd/'+ff)
-                print('deleted ','"/sd/'+ff+'"')
-            except Exception as e:
-                print('cannot delete ','"/sd/'+ff+'"', e)
-    with open("/sd/test1.txt", "w") as f:
-        f.write("Hello world!\r\n")
-
-    with open("/sd/test2.txt", "w") as f:
-        f.write("Hello world!\r\n")
-        f.write("This is a test\r\n")
-
-    # Open the file we just created and read from it
-    print('cat /sd/test2.txt')
-    with open("/sd/test2.txt", "r") as file:
-        data = file.read()
-        print('    ',data)
-    print(os.listdir('/sd'))
-
-def usbDescDemo():
-    if supervisor.runtime.usb_connected:
-        print("USB<host>!")
-    else:
-        print("!USB<host>")
-
-    device=None
-    ff2=None
-    ii=0
-    while ii<100 and (device is None or ff2 is None):
-        time.sleep(0.5)
-        ff2=usb.core.find(find_all=True)
-        device=usb.core.find()
-        ii+=1
-    print(ii,device,ff2)
-    if device is None and ff2 is not None:
-        print('point3')
-        for k in ff2:
-            print('point3',k)
-            if k is not None:
-                device= k
-                break
-    print('point2',ii,device,ff2)
-    print("device------------")
-    print("pid", hex(device.idProduct))
-    print("vid", hex(device.idVendor))
-    print("man", device.manufacturer)
-    print("product", device.product)
-    print("serial", device.serial_number)
-    print("config[0]:")
-    config_descriptor = adafruit_usb_host_descriptors.get_configuration_descriptor(
-        device, 0
-    )
-    i = 0
-    while i < len(config_descriptor):
-        descriptor_len = config_descriptor[i]
-        descriptor_type = config_descriptor[i + 1]
-        if descriptor_type == adafruit_usb_host_descriptors.DESC_CONFIGURATION:
-            config_value = config_descriptor[i + 5]
-            print(f" value {config_value:d}")
-        elif descriptor_type == adafruit_usb_host_descriptors.DESC_INTERFACE:
-            interface_number = config_descriptor[i + 2]
-            interface_class = config_descriptor[i + 5]
-            interface_subclass = config_descriptor[i + 6]
-            print(f" interface[{interface_number:d}]")
-            print(
-                f"  class {interface_class:02x} subclass {interface_subclass:02x}"
-            )
-        elif descriptor_type == adafruit_usb_host_descriptors.DESC_ENDPOINT:
-            endpoint_address = config_descriptor[i + 2]
-            if endpoint_address & 128:
-                print(f"  IN {endpoint_address:02x}")
-            else:
-                print(f"  OUT {endpoint_address:02x}")
-        i += descriptor_len
-    print()
-
-    print("Keyboard Reading device...")
-    device.set_configuration(1)
-    if device.is_kernel_driver_active(0):
-        print('is_kernel_driver_active')
-    #    try:
-    #        ff.detach_kernel_driver(0)
-    #    except:
-    #        print('can not detach_kernel_driver')
-            
-
-    ar=array.array('I', [0 for i in range(10)])
-    ii=0
-    try:
-        device.read(0x81, ar)
-        print('ar',ar)
-    except Exception as e:
-        print('except read', e)
-        
-    for kk in range(256):
-        try:
-            device.read(ii, ar)
-            print('ar',ii,ar)
-        except Exception as e:
-            #print('except read', e)
-            pass
-        
-
-
-
-
-
-#------------------------------------
-sdDemo()
 
 pp=usb_host.Port(board.GP26, board.GP27)
 
 #uartMPG = busio.UART(board.GP0, board.GP1, baudrate=115200)
-UART_BUF_SIZE=196
+UART_BUF_SIZE=1960
 uartMPG = busio.UART(board.GP0, board.GP1, baudrate=115200, receiver_buffer_size=UART_BUF_SIZE)
 
 #usbDescDemo()
@@ -176,24 +60,22 @@ st = GrblState(kbd=kbd, uart_grbl_mpg = uartMPG,neo=neo )
 kbd.objGrblStateSetter(st)
 
 
-start_time_q =time.time()
+
 start_time_cmd = time.time() 
-uartMPG.write(bytearray(b'\x8b\r\n'))
-DEBUG = True
+
+DEBUG = False
 
 while True:
   try:  
-    if time.time()-start_time_q>3:
-        #st.send2grbl('?') # get status from grbl cnc machine
+    st.query4MPG()
+    if st.need_query:
         st.send2grblOne('?') # get status from grbl cnc machine
-        start_time_q = time.time()
     mpgConsole=''
     ii_mpgCons=0     
     while ii_mpgCons<20:
         mpgConsolePart=uartMPG.read(UART_BUF_SIZE)
         ii_mpgCons +=1
         if mpgConsolePart is not None:
-          start_time_q = time.time()
           mpgConsole+=mpgConsolePart.decode()
           #print(mpgCons)
         else:
@@ -205,8 +87,10 @@ while True:
         st.displayState(mpgConsole)
     proceedCh=''    
     while supervisor.runtime.serial_bytes_available:
-        start_time_q = time.time()
-        proceedCh += sys.stdin.read(1)
+        try:
+            proceedCh += sys.stdin.read(1)
+        except:
+            pass    
     if proceedCh!='':
         if DEBUG:
             print('proceedCh:',proceedCh,[ord(res) for res in proceedCh])

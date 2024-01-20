@@ -92,7 +92,7 @@ HID_KEYCODE_TO_ASCII =[
     [b'insert', b'shift insert'], # 0x49 
     [b'home', b'shift home'], # 0x4a 
     [b'pageUp', b'pageUp'], # 0x4b [b'pageUp', b'shift pageUp'], # 0x4b 
-    [b'del', b'shift del'], # 0x4c 
+    [b'delete', b'shift delete'], # 0x4c 
     [b'end', b'shift end'], # 0x4d 
     [b'pageDown', b'pageDown'], # 0x4e #[b'pageDown', b'shift pageDown'], # 0x4e 
     [b'\x00', b'\x00'], # 0x4f 
@@ -196,7 +196,7 @@ class SmartKbd(object):
         elif ((l_scan==0x62 and l_numlockOff)): #end
             l_char='insert'     
         elif ((l_scan==0x63 and l_numlockOff)): #del
-            l_char='del'     
+            l_char='delete'     
         elif (l_scan==0x51 or (l_scan==0x5a and l_numlockOff)): #down
             l_char='down'     
         elif (l_scan==0x28 or (l_scan==0x58 and l_numlockOff)): #enter
