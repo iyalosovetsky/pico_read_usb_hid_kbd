@@ -93,7 +93,7 @@ VFD_ARROW_Y = VFD_GREEN
 VFD_ARROW_Z = VFD_BLUE
 VFD_BG = 0x000505
 
-GRBL_QUERY_INTERVAL = 2
+GRBL_QUERY_INTERVAL = 0.5
 
 C_STEP_MAX = 100.0
 C_STEP_MIN = 0.1
@@ -135,7 +135,7 @@ class GrblState(object):
         self._alarm = ''
         self.query_now(3)
         self._query4MPG_countDown = 2
-        self.time2query = time.time()
+        self.time2query = time.monotonic()
         self._mpg = mpg
         self._mpg_prev = ''
         self._mX = mX
@@ -164,7 +164,7 @@ class GrblState(object):
         self.grblCmd2HistPos = 0
         self.term_line_from=1
         self.term_pos_from=0
-        self._state_time_change = time.time()
+        self._state_time_change = time.monotonic()
         self._msg_conf = [
             ('x', '     ', VFD_GREEN, 190, 15, 3),
             ('y', '     ', VFD_RED, 190, 55, 3),
@@ -354,7 +354,7 @@ class GrblState(object):
              
     def hello(self):
        self.neoLabel('GrblHAL v'+self.__version__,id='cmd',color=VFD_YELLOW)
-       time.sleep(0.5)
+       #time.sleep(0.5)
 
     def getHelp(self):
        self.helpIdx+=1
@@ -523,6 +523,8 @@ class GrblState(object):
              if  self.idleCounter>10:
                 self.idleCounter = 0
                 self.neoLabel('',id='cmd')
+      elif command in ('#'):  
+        self.toggleMPG()
       elif command=='-y':
           self.grblJog(y=-self.step)
       elif  command=='+y':
@@ -594,8 +596,6 @@ class GrblState(object):
           self.homeTermPos()
           if len(self.grbl_info)>0:
             self.neoTerm(self.grbl_info)   
-      elif command in ('#'):  
-        self.toggleMPG()
       elif command in ('cancel'):  
         # if self.state == 'run' or self.state == 'jog':
           #self.flashKbdLEDs(LED_SCROLLLOCK , BLINK_5) ##2 - leds ???       # 2 - macro1 10/2 blink
@@ -679,10 +679,10 @@ class GrblState(object):
        
     @property
     def need_query(self):
-        # l_nq = self._need_query or time.time()-self.start_time_q>GRBL_QUERY_INTERVAL
-        l_nq = self._need_query or time.time()>self.time2query
+        # l_nq = self._need_query or time.monotonic()-self.start_time_q>GRBL_QUERY_INTERVAL
+        l_nq = self._need_query or time.monotonic()>self.time2query
         if l_nq:
-          self.time2query = time.time()+GRBL_QUERY_INTERVAL
+          self.time2query = time.monotonic()+GRBL_QUERY_INTERVAL
         self._need_query = False
         return l_nq
     
@@ -752,14 +752,14 @@ class GrblState(object):
           self._state=grblState
           self._state_is_changed = (self._state_prev is None or  self._state_prev != self._state)
           self._state_prev = self._state
-          self._state_time_change = time.time()
+          self._state_time_change = time.monotonic()
           return
         elif grblState=='ok':
           self._execProgress='ok'
           self._state='ok'
           self._state_is_changed = (self._state_prev is None or  self._state_prev != self._state)
           self._state_prev = self._state
-          self._state_time_change = time.time()
+          self._state_time_change = time.monotonic()
           return 
         elif grblState.startswith('[') and grblState.endswith(']'):
             self.grbl_state = grblState
@@ -785,7 +785,7 @@ class GrblState(object):
               self._state_is_changed = (prv is None or  prv != self._state)
               if self._execProgress=='do' and (self._state.startswith('idle') or self._state.startswith('alarm')) :
                  self._execProgress='done'
-              self._state_time_change = time.time()
+              self._state_time_change = time.monotonic()
             else:
                 elem = token.split(':')
                 if len(elem)>1 and elem[0]=='mpg' and elem[1] is not None and (elem[1]=='1' or elem[1]=='0'):

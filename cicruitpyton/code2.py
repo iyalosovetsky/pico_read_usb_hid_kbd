@@ -61,7 +61,7 @@ kbd.objGrblStateSetter(st)
 
 
 
-start_time_cmd = time.time() 
+start_time_cmd = time.monotonic() 
 
 DEBUG = False
 
@@ -70,21 +70,11 @@ while True:
     st.query4MPG()
     if st.need_query:
         st.send2grblOne('?') # get status from grbl cnc machine
-    mpgConsole=''
-    ii_mpgCons=0     
-    while ii_mpgCons<20:
-        mpgConsolePart=uartMPG.read(UART_BUF_SIZE)
-        ii_mpgCons +=1
-        if mpgConsolePart is not None:
-          mpgConsole+=mpgConsolePart.decode()
-          #print(mpgCons)
-        else:
-          break
-        time.sleep(0.1) 
+    mpgConsole=uartMPG.read(UART_BUF_SIZE)    
     if mpgConsole is not None and mpgConsole!='': 
         if DEBUG:
-            print('mpgConsole:',mpgConsole)
-        st.displayState(mpgConsole)
+            print('mpgConsole:',mpgConsole.decode())
+        st.displayState(mpgConsole.decode())
     proceedCh=''    
     while supervisor.runtime.serial_bytes_available:
         try:
@@ -95,14 +85,16 @@ while True:
         if DEBUG:
             print('proceedCh:',proceedCh,[ord(res) for res in proceedCh])
         kbd.proceedChars(proceedCh, DEBUG)
-    if time.time()-start_time_cmd>1:
+    if time.monotonic()-start_time_cmd>0.2:
         st.popCmd2grbl()
-        start_time_cmd = time.time()    
-    time.sleep(0.1)
+        start_time_cmd = time.monotonic()    
+    #time.sleep(0.1)
   except KeyboardInterrupt:
+      if DEBUG:
+          break
+      else:    
         print('main: will cancel')
-        st.send2grblOne('cancel')
-       
+        st.send2grblOne('cancel')       
         
             
 
